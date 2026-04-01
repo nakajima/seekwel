@@ -22,15 +22,15 @@ fn builder_save_and_reload() -> Result<(), Error> {
     assert_eq!(draft.age, Some(100));
     assert_eq!(draft.id, 0);
 
-    let person = draft.save()?;
+    let mut person = draft.save()?;
     expect_persisted(&person);
     assert_eq!(person.id, 1);
 
     let id = person.id;
-    let reloaded = person.reload()?;
-    assert_eq!(reloaded.id, id);
-    assert_eq!(reloaded.name, "Pat");
-    assert_eq!(reloaded.age, Some(100));
+    person.reload()?;
+    assert_eq!(person.id, id);
+    assert_eq!(person.name, "Pat");
+    assert_eq!(person.age, Some(100));
 
     let person2 = Person::builder().name("Sam").create()?;
     assert_eq!(person2.name, "Sam");
