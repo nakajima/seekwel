@@ -49,8 +49,6 @@ let person = draft.save()?; // => Person<Persisted>
 let person2 = Person::builder().name("Sam").create()?;
 
 // Persisted records can be reloaded.
-let reloaded = person.reload()?;
-assert_eq!(reloaded.id, person.id);
-assert_eq!(person2.id, 2);
+person.reload()?;
 ```
 
