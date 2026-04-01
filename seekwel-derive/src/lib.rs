@@ -250,7 +250,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
                 <Self as seekwel::model::Model>::create_table()
             }
 
-            pub fn reload(self) -> Result<Self, seekwel::error::Error> {
+            pub fn reload(&mut self) -> Result<(), seekwel::error::Error> {
                 <Self as seekwel::model::PersistedModel>::reload(self)
             }
         }

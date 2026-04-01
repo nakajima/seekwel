@@ -35,13 +35,15 @@ pub trait PersistedModel: Model + Sized {
     fn id(&self) -> u64;
     fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self>;
 
-    fn reload(self) -> Result<Self, Error> {
+    fn reload(&mut self) -> Result<(), Error> {
         let conn = Connection::get()?;
-        conn.query_row(
+        *self = conn.query_row(
             &sql::select_by_id(Self::table_name(), Self::columns()),
             [self.id() as i64],
             Self::from_row,
-        )
+        )?;
+
+        Ok(())
     }
 }
 
