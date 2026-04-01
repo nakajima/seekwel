@@ -1,0 +1,11 @@
+[workspace]
+members = ["seekwel-derive"]
+
+[package]
+name = "seekwel"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rusqlite = { version = "0.39.0", features = ["bundled-sqlcipher"] }
+seekwel-derive = { path = "seekwel-derive" }
