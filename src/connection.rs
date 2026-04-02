@@ -1,6 +1,6 @@
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
-use rusqlite::Params;
+use rusqlite::{OptionalExtension, Params};
 
 use crate::error::Error;
 
@@ -47,5 +47,32 @@ impl Connection {
         F: FnOnce(&rusqlite::Row) -> rusqlite::Result<T>,
     {
         self.conn.query_row(query, params, f).map_err(Error::Sqlite)
+    }
+
+    pub fn query_optional<T, P, F>(&self, query: &str, params: P, f: F) -> Result<Option<T>, Error>
+    where
+        P: Params,
+        F: FnOnce(&rusqlite::Row) -> rusqlite::Result<T>,
+    {
+        self.conn
+            .query_row(query, params, f)
+            .optional()
+            .map_err(Error::Sqlite)
+    }
+
+    pub fn query_all<T, P, F>(&self, query: &str, params: P, f: F) -> Result<Vec<T>, Error>
+    where
+        P: Params,
+        F: FnMut(&rusqlite::Row) -> rusqlite::Result<T>,
+    {
+        let mut stmt = self.conn.prepare(query).map_err(Error::Sqlite)?;
+        let rows = stmt.query_map(params, f).map_err(Error::Sqlite)?;
+        let mut values = Vec::new();
+
+        for row in rows {
+            values.push(row.map_err(Error::Sqlite)?);
+        }
+
+        Ok(values)
     }
 }

@@ -5,6 +5,12 @@ use crate::connection::Connection;
 use crate::error::Error;
 use crate::sql;
 
+mod comparison;
+mod query;
+
+pub use comparison::{Comparison, ComparisonOperand};
+pub use query::Query;
+
 #[derive(Debug, Clone)]
 pub struct ColumnDef {
     pub name: &'static str,
@@ -35,14 +41,17 @@ pub trait PersistedModel: Model + Sized {
     fn id(&self) -> u64;
     fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self>;
 
-    fn reload(&mut self) -> Result<(), Error> {
+    fn find(id: u64) -> Result<Self, Error> {
         let conn = Connection::get()?;
-        *self = conn.query_row(
+        conn.query_row(
             &sql::select_by_id(Self::table_name(), Self::columns()),
-            [self.id() as i64],
+            [id as i64],
             Self::from_row,
-        )?;
+        )
+    }
 
+    fn reload(&mut self) -> Result<(), Error> {
+        *self = Self::find(self.id())?;
         Ok(())
     }
 }
@@ -54,4 +63,19 @@ pub fn insert<M: Model>(model: &M) -> Result<u64, Error> {
         &sql::insert(M::table_name(), M::columns()),
         params_from_iter(params),
     )
+}
+
+fn validate_column<M: Model>(column: &str) -> Result<(), Error> {
+    if column == "id"
+        || M::columns()
+            .iter()
+            .any(|candidate| candidate.name == column)
+    {
+        return Ok(());
+    }
+
+    Err(Error::InvalidQuery(format!(
+        "unknown column `{column}` for `{}`",
+        M::table_name()
+    )))
 }

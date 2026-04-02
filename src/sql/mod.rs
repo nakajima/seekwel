@@ -40,9 +40,34 @@ pub fn insert(table_name: &str, columns: &[ColumnDef]) -> String {
 }
 
 pub fn select_by_id(table_name: &str, columns: &[ColumnDef]) -> String {
+    format!(
+        "SELECT {} FROM {table_name} WHERE id = ?1",
+        select_columns(columns)
+    )
+}
+
+pub fn select_where(
+    table_name: &str,
+    columns: &[ColumnDef],
+    clause: &str,
+    limit_one: bool,
+) -> String {
+    let mut query = format!(
+        "SELECT {} FROM {table_name} WHERE {clause}",
+        select_columns(columns)
+    );
+
+    if limit_one {
+        query.push_str(" LIMIT 1");
+    }
+
+    query
+}
+
+fn select_columns(columns: &[ColumnDef]) -> String {
     let mut cols = vec!["id"];
     cols.extend(columns.iter().map(|c| c.name));
-    format!("SELECT {} FROM {table_name} WHERE id = ?1", cols.join(", "))
+    cols.join(", ")
 }
 
 #[cfg(test)]
@@ -98,6 +123,22 @@ mod tests {
         assert_eq!(
             select_by_id("person", test_columns()),
             "SELECT id, name, age FROM person WHERE id = ?1"
+        );
+    }
+
+    #[test]
+    fn test_select_where() {
+        assert_eq!(
+            select_where("person", test_columns(), "age >= ?1", false),
+            "SELECT id, name, age FROM person WHERE age >= ?1"
+        );
+    }
+
+    #[test]
+    fn test_select_where_first() {
+        assert_eq!(
+            select_where("person", test_columns(), "name = ?1", true),
+            "SELECT id, name, age FROM person WHERE name = ?1 LIMIT 1"
         );
     }
 }

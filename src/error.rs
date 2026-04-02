@@ -6,6 +6,7 @@ pub enum Error {
     AlreadyInitialized,
     NotInitialized,
     MissingField(String),
+    InvalidQuery(String),
 }
 
 impl fmt::Display for Error {
@@ -15,6 +16,7 @@ impl fmt::Display for Error {
             Error::AlreadyInitialized => write!(f, "Connection already initialized"),
             Error::NotInitialized => write!(f, "Connection not initialized"),
             Error::MissingField(field) => write!(f, "Missing required field: {field}"),
+            Error::InvalidQuery(message) => write!(f, "Invalid query: {message}"),
         }
     }
 }

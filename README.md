@@ -24,7 +24,7 @@ let conn = Connection::get()?;
 Everything you might want to save in the db is a "Model". There's a `model` macro that sets everything up all nice.
 
 ```rs
-use seekwel::connection::Connection;
+use seekwel::{Comparison, connection::Connection};
 
 #[seekwel::model]
 struct Person {
@@ -43,12 +43,38 @@ let draft = Person::builder()
     .build()?; // => Person<NewRecord>
 
 // Persist it.
-let person = draft.save()?; // => Person<Persisted>
+let mut person = draft.save()?; // => Person<Persisted>
 
 // Or build + persist in one step.
 let person2 = Person::builder().name("Sam").create()?;
 
 // Persisted records can be reloaded.
 person.reload()?;
+
+// Persisted records can be queried.
+let person = Person::find(1)?; // => Person<Persisted>
+let person = Person::q("name", Comparison::Eq("Pat")).first()?; // => Option<Person<Persisted>>
+let person = Person::q("name", Comparison::Ne("Pat")).first()?; // => Option<Person<Persisted>>
+let people = Person::q("age", Comparison::Gte(21)).all()?; // => Vec<Person<Persisted>>
+
+// q(...) returns a query builder. Use first() or all() to execute it.
+let people = Person::q("age", Comparison::Gte(21))
+    .and(Person::q("name", Comparison::Eq("Pat")))
+    .all()?;
+
+// Chaining q(...) on a query adds another AND clause.
+let people = Person::q("age", Comparison::Gte(21))
+    .q("name", Comparison::Eq("Pat"))
+    .all()?;
+
+// You can also group OR clauses.
+let people = Person::q("age", Comparison::Gte(21))
+    .and(Person::q("name", Comparison::Eq("Pat")).or(Person::q("name", Comparison::Eq("Sam"))))
+    .all()?;
+
+// Eq(None::<T>) becomes IS NULL. Ne(None::<T>) becomes IS NOT NULL.
+let people = Person::q("age", Comparison::Eq(None::<u8>)).all()?;
+
+// Comparison supports Eq, Ne, Gt, Gte, Lt, and Lte.
 ```
 

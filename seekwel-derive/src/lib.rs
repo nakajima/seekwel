@@ -250,6 +250,20 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
                 <Self as seekwel::model::Model>::create_table()
             }
 
+            pub fn find(id: u64) -> Result<Self, seekwel::error::Error> {
+                <Self as seekwel::model::PersistedModel>::find(id)
+            }
+
+            pub fn q<T>(
+                column: &str,
+                comparison: seekwel::model::Comparison<T>,
+            ) -> seekwel::model::Query<Self>
+            where
+                T: seekwel::model::ComparisonOperand,
+            {
+                seekwel::model::Query::new(column, comparison)
+            }
+
             pub fn reload(&mut self) -> Result<(), seekwel::error::Error> {
                 <Self as seekwel::model::PersistedModel>::reload(self)
             }
