@@ -7,9 +7,13 @@ use crate::sql;
 
 mod comparison;
 mod query;
+mod sql_field;
 
 pub use comparison::{Comparison, ComparisonOperand};
 pub use query::Query;
+pub use sql_field::SqlField;
+#[doc(hidden)]
+pub use sql_field::column;
 
 #[derive(Debug, Clone)]
 pub struct ColumnDef {

@@ -138,29 +138,27 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
 
     let column_defs = columns.iter().map(|field| {
         let field_name = field.ident.as_ref().unwrap().to_string();
-        let (sql_type, nullable) = sql_type_for(&field.ty);
+        let ty = &field.ty;
         quote! {
-            seekwel::model::ColumnDef {
-                name: #field_name,
-                sql_type: #sql_type,
-                nullable: #nullable,
-            }
+            seekwel::model::column::<#ty>(#field_name)
         }
     });
 
     let from_row_fields = columns.iter().enumerate().map(|(index, field)| {
         let field_name = field.ident.as_ref().unwrap();
+        let ty = &field.ty;
         let row_index = index + 1;
-        if needs_i64_cast(&field.ty) {
-            quote! { #field_name: row.get::<_, i64>(#row_index)? as u64 }
-        } else {
-            quote! { #field_name: row.get(#row_index)? }
+        quote! {
+            #field_name: <#ty as seekwel::model::SqlField>::from_sql_row(row, #row_index)?
         }
     });
 
     let param_exprs = columns.iter().map(|field| {
         let field_name = field.ident.as_ref().unwrap();
-        to_value_expr(&field.ty, quote! { self.#field_name })
+        let ty = &field.ty;
+        quote! {
+            <#ty as seekwel::model::SqlField>::to_sql_value(&self.#field_name)
+        }
     });
 
     let builder_fields = col_names
@@ -217,7 +215,8 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
             }
 
             fn columns() -> &'static [seekwel::model::ColumnDef] {
-                &[#(#column_defs,)*]
+                const COLUMNS: &[seekwel::model::ColumnDef] = &[#(#column_defs,)*];
+                COLUMNS
             }
 
             fn params(&self) -> Vec<rusqlite::types::Value> {
@@ -232,7 +231,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
 
             fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
                 Ok(Self {
-                    id: row.get::<_, i64>(0)? as u64,
+                    id: <u64 as seekwel::model::SqlField>::from_sql_row(row, 0)?,
                     #(#from_row_fields,)*
                     #state_field_name: std::marker::PhantomData,
                 })
@@ -323,22 +322,6 @@ fn validate_typestate_generics(generics: &syn::Generics) -> Result<(), syn::Erro
     }
 }
 
-/// Returns (sql_type, nullable)
-fn sql_type_for(ty: &Type) -> (&'static str, bool) {
-    if let Some(inner) = option_inner_type(ty) {
-        let (sql_type, _) = sql_type_for(inner);
-        return (sql_type, true);
-    }
-
-    let type_str = quote!(#ty).to_string();
-    match type_str.as_str() {
-        "String" => ("TEXT", false),
-        "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "bool" => ("INTEGER", false),
-        "f32" | "f64" => ("REAL", false),
-        _ => ("TEXT", false),
-    }
-}
-
 fn is_u64_type(ty: &Type) -> bool {
     let type_str = quote!(#ty).to_string();
     type_str == "u64"
@@ -354,35 +337,6 @@ fn is_phantom_data_type(ty: &Type) -> bool {
     }
 
     false
-}
-
-/// Generate a `rusqlite::types::Value` expression for a field.
-fn to_value_expr(ty: &Type, field: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
-    if let Some(inner) = option_inner_type(ty) {
-        let inner_expr = to_value_expr(inner, quote! { v });
-        return quote! {
-            match #field {
-                Some(v) => #inner_expr,
-                None => rusqlite::types::Value::Null,
-            }
-        };
-    }
-
-    let type_str = quote!(#ty).to_string();
-    match type_str.as_str() {
-        "String" => quote! { rusqlite::types::Value::Text(#field.clone()) },
-        "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" => {
-            quote! { rusqlite::types::Value::Integer(#field as i64) }
-        }
-        "bool" => quote! { rusqlite::types::Value::Integer(#field as i64) },
-        "f32" | "f64" => quote! { rusqlite::types::Value::Real(#field as f64) },
-        _ => quote! { rusqlite::types::Value::Text(#field.to_string()) },
-    }
-}
-
-fn needs_i64_cast(ty: &Type) -> bool {
-    let type_str = quote!(#ty).to_string();
-    type_str == "u64"
 }
 
 fn is_option_type(ty: &Type) -> bool {

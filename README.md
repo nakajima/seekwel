@@ -82,3 +82,5 @@ let people = Person::q("age", Comparison::Eq(None::<u8>)).all()?;
 
 // Comparison supports Eq, Ne, Gt, Gte, Lt, and Lte.
 ```
+
+Custom field types can implement `seekwel::SqlField` to control how they are stored, loaded, and queried.

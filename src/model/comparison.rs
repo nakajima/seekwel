@@ -2,6 +2,8 @@ use rusqlite::types::Value;
 
 use crate::error::Error;
 
+use super::SqlField;
+
 #[derive(Debug, Clone)]
 pub enum Comparison<T> {
     Eq(T),
@@ -126,95 +128,17 @@ fn push_placeholder(params: &mut Vec<Value>, value: Value) -> String {
     format!("?{index}")
 }
 
-macro_rules! integer_operand {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl ComparisonOperand for $ty {
-                fn into_sql_value(self) -> Option<Value> {
-                    Some(Value::Integer(self as i64))
-                }
-            }
-
-            impl ComparisonOperand for &$ty {
-                fn into_sql_value(self) -> Option<Value> {
-                    Some(Value::Integer(*self as i64))
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! float_operand {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl ComparisonOperand for $ty {
-                fn into_sql_value(self) -> Option<Value> {
-                    Some(Value::Real(self as f64))
-                }
-            }
-
-            impl ComparisonOperand for &$ty {
-                fn into_sql_value(self) -> Option<Value> {
-                    Some(Value::Real(*self as f64))
-                }
-            }
-        )*
-    };
-}
-
-integer_operand!(u8, u16, u32, u64, i8, i16, i32, i64);
-float_operand!(f32, f64);
-
-impl ComparisonOperand for bool {
+impl<T> ComparisonOperand for T
+where
+    T: SqlField,
+{
     fn into_sql_value(self) -> Option<Value> {
-        Some(Value::Integer(self as i64))
-    }
-}
-
-impl ComparisonOperand for &bool {
-    fn into_sql_value(self) -> Option<Value> {
-        Some(Value::Integer(*self as i64))
-    }
-}
-
-impl ComparisonOperand for String {
-    fn into_sql_value(self) -> Option<Value> {
-        Some(Value::Text(self))
-    }
-}
-
-impl ComparisonOperand for &String {
-    fn into_sql_value(self) -> Option<Value> {
-        Some(Value::Text(self.clone()))
+        self.into_sql_comparison_value()
     }
 }
 
 impl ComparisonOperand for &str {
     fn into_sql_value(self) -> Option<Value> {
         Some(Value::Text(self.to_string()))
-    }
-}
-
-impl ComparisonOperand for Value {
-    fn into_sql_value(self) -> Option<Value> {
-        Some(self)
-    }
-}
-
-impl ComparisonOperand for &Value {
-    fn into_sql_value(self) -> Option<Value> {
-        Some(self.clone())
-    }
-}
-
-impl<T> ComparisonOperand for Option<T>
-where
-    T: ComparisonOperand,
-{
-    fn into_sql_value(self) -> Option<Value> {
-        match self {
-            Some(value) => value.into_sql_value(),
-            None => None,
-        }
     }
 }
