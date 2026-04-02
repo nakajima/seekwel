@@ -134,8 +134,6 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
         .iter()
         .map(|field| field.ident.as_ref().unwrap())
         .collect();
-    let col_types: Vec<_> = columns.iter().map(|field| &field.ty).collect();
-
     let column_defs = columns.iter().map(|field| {
         let field_name = field.ident.as_ref().unwrap().to_string();
         let ty = &field.ty;
@@ -161,15 +159,18 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
         }
     });
 
-    let builder_fields = col_names
-        .iter()
-        .zip(col_types.iter())
-        .map(|(field_name, ty)| {
-            quote! { #field_name: Option<#ty> }
-        });
+    let builder_fields = columns.iter().map(|field| {
+        let field_name = field.ident.as_ref().unwrap();
+        let ty = &field.ty;
+        if let Some(inner_ty) = option_inner_type(ty) {
+            quote! { #field_name: seekwel::model::builder::Optional<#inner_ty> }
+        } else {
+            quote! { #field_name: seekwel::model::builder::Required<#ty> }
+        }
+    });
 
     let builder_defaults = col_names.iter().map(|field_name| {
-        quote! { #field_name: None }
+        quote! { #field_name: Default::default() }
     });
 
     let builder_setters = columns.iter().map(|field| {
@@ -178,14 +179,14 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
         if is_option_type(ty) {
             quote! {
                 pub fn #field_name(mut self, value: #ty) -> Self {
-                    self.#field_name = Some(value);
+                    self.#field_name.set(value);
                     self
                 }
             }
         } else {
             quote! {
                 pub fn #field_name(mut self, value: impl Into<#ty>) -> Self {
-                    self.#field_name = Some(value.into());
+                    self.#field_name.set(value);
                     self
                 }
             }
@@ -196,12 +197,10 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
         let field_name = field.ident.as_ref().unwrap();
         let missing_name = field_name.to_string();
         if is_option_type(&field.ty) {
-            quote! { let #field_name = self.#field_name.unwrap_or(None); }
+            quote! { let #field_name = self.#field_name.finish(); }
         } else {
             quote! {
-                let #field_name = self
-                    .#field_name
-                    .ok_or_else(|| seekwel::error::Error::MissingField(#missing_name.to_string()))?;
+                let #field_name = self.#field_name.finish(#missing_name)?;
             }
         }
     });

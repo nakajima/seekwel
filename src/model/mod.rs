@@ -5,6 +5,7 @@ use crate::connection::Connection;
 use crate::error::Error;
 use crate::sql;
 
+pub mod builder;
 mod comparison;
 mod query;
 mod sql_field;
