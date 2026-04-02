@@ -11,7 +11,7 @@ mod query;
 mod sql_field;
 
 pub use comparison::{Comparison, ComparisonOperand};
-pub use query::Query;
+pub use query::{ChunkedQuery, LazyQuery, Query};
 pub use sql_field::SqlField;
 #[doc(hidden)]
 pub use sql_field::column;

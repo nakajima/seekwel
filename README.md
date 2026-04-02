@@ -57,7 +57,7 @@ let person = Person::q("name", Comparison::Eq("Pat")).first()?; // => Option<Per
 let person = Person::q("name", Comparison::Ne("Pat")).first()?; // => Option<Person<Persisted>>
 let people = Person::q("age", Comparison::Gte(21)).all()?; // => Vec<Person<Persisted>>
 
-// q(...) returns a query builder. Use first(), all(), or iter() to execute it.
+// q(...) returns a query builder. Use first(), all(), iter(), or try_iter() to execute it.
 let people = Person::q("age", Comparison::Gte(21))
     .and(Person::q("name", Comparison::Eq("Pat")))
     .all()?;
@@ -76,6 +76,37 @@ let people = Person::q("age", Comparison::Gte(21))
 for person in Person::q("age", Comparison::Gte(21)).iter()? {
     println!("{}", person.name);
 }
+
+// Or iterate directly. This uses the plain/panicking path.
+for person in Person::q("age", Comparison::Gte(21)) {
+    println!("{}", person.name);
+}
+
+// Eager try_iter() still yields plain records.
+for person in Person::q("age", Comparison::Gte(21)).try_iter()? {
+    println!("{}", person.name);
+}
+
+// Fetch strategy modifiers only affect iter(), try_iter(), and direct iteration.
+for person in Person::q("age", Comparison::Gte(21)).lazy().iter()? {
+    println!("{}", person.name);
+}
+
+// Lazy try_iter() yields Result items.
+for person in Person::q("age", Comparison::Gte(21)).lazy().try_iter()? {
+    let person = person?;
+    println!("{}", person.name);
+}
+
+// chunked(n) yields chunks.
+for people in Person::q("age", Comparison::Gte(21)).chunked(100) {
+    for person in people {
+        println!("{}", person.name);
+    }
+}
+
+// first() and all() stay eager even on lazy/chunked queries.
+let people = Person::q("age", Comparison::Gte(21)).lazy().all()?;
 
 // Eq(None::<T>) becomes IS NULL. Ne(None::<T>) becomes IS NOT NULL.
 let people = Person::q("age", Comparison::Eq(None::<u8>)).all()?;

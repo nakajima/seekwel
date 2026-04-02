@@ -93,6 +93,92 @@ fn find_and_query_records() -> Result<(), Error> {
     iterated_ids.sort_unstable();
     assert_eq!(iterated_ids, vec![pat.id, sam.id]);
 
+    let mut eager_try_ids: Vec<_> = Person::q("name", Comparison::Eq("Pat"))
+        .or(Person::q("name", Comparison::Eq("Sam")))
+        .try_iter()?
+        .map(|person| person.id)
+        .collect();
+    eager_try_ids.sort_unstable();
+    assert_eq!(eager_try_ids, vec![pat.id, sam.id]);
+
+    let mut direct_ids = Vec::new();
+    for person in
+        Person::q("name", Comparison::Eq("Pat")).or(Person::q("name", Comparison::Eq("Sam")))
+    {
+        direct_ids.push(person.id);
+    }
+    direct_ids.sort_unstable();
+    assert_eq!(direct_ids, vec![pat.id, sam.id]);
+
+    let mut lazy_ids = Vec::new();
+    for person in Person::q("name", Comparison::Eq("Pat"))
+        .or(Person::q("name", Comparison::Eq("Sam")))
+        .lazy()
+        .iter()?
+    {
+        lazy_ids.push(person.id);
+    }
+    lazy_ids.sort_unstable();
+    assert_eq!(lazy_ids, vec![pat.id, sam.id]);
+
+    let lazy_try_ids: Result<Vec<_>, _> = Person::q("name", Comparison::Eq("Pat"))
+        .or(Person::q("name", Comparison::Eq("Sam")))
+        .lazy()
+        .try_iter()?
+        .map(|person| person.map(|person| person.id))
+        .collect();
+    let mut lazy_try_ids = lazy_try_ids?;
+    lazy_try_ids.sort_unstable();
+    assert_eq!(lazy_try_ids, vec![pat.id, sam.id]);
+
+    let mut direct_lazy_ids = Vec::new();
+    for person in Person::q("name", Comparison::Eq("Pat"))
+        .or(Person::q("name", Comparison::Eq("Sam")))
+        .lazy()
+    {
+        direct_lazy_ids.push(person.id);
+    }
+    direct_lazy_ids.sort_unstable();
+    assert_eq!(direct_lazy_ids, vec![pat.id, sam.id]);
+
+    let mut chunked_iter_ids = Vec::new();
+    for people in Person::q("name", Comparison::Eq("Pat"))
+        .or(Person::q("name", Comparison::Eq("Sam")))
+        .chunked(2)
+        .iter()?
+    {
+        chunked_iter_ids.extend(people.into_iter().map(|person| person.id));
+    }
+    chunked_iter_ids.sort_unstable();
+    assert_eq!(chunked_iter_ids, vec![pat.id, sam.id]);
+
+    let chunked_ids: Result<Vec<_>, _> = Person::q("name", Comparison::Eq("Pat"))
+        .or(Person::q("name", Comparison::Eq("Sam")))
+        .chunked(2)
+        .try_iter()?
+        .map(|people| {
+            people.map(|people| {
+                people
+                    .into_iter()
+                    .map(|person| person.id)
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
+    let mut chunked_ids = chunked_ids?.into_iter().flatten().collect::<Vec<_>>();
+    chunked_ids.sort_unstable();
+    assert_eq!(chunked_ids, vec![pat.id, sam.id]);
+
+    let mut direct_chunked_ids = Vec::new();
+    for people in Person::q("name", Comparison::Eq("Pat"))
+        .or(Person::q("name", Comparison::Eq("Sam")))
+        .chunked(2)
+    {
+        direct_chunked_ids.extend(people.into_iter().map(|person| person.id));
+    }
+    direct_chunked_ids.sort_unstable();
+    assert_eq!(direct_chunked_ids, vec![pat.id, sam.id]);
+
     let missing = Person::q("name", Comparison::Eq("Taylor")).first()?;
     assert!(missing.is_none());
 
@@ -119,6 +205,42 @@ fn find_and_query_records() -> Result<(), Error> {
     let invalid_iter = Person::q("not_a_column", Comparison::Eq(1)).iter();
     assert!(matches!(
         invalid_iter,
+        Err(Error::InvalidQuery(message)) if message.contains("unknown column `not_a_column`")
+    ));
+
+    let invalid_try_iter = Person::q("not_a_column", Comparison::Eq(1)).try_iter();
+    assert!(matches!(
+        invalid_try_iter,
+        Err(Error::InvalidQuery(message)) if message.contains("unknown column `not_a_column`")
+    ));
+
+    let invalid_lazy_iter = Person::q("not_a_column", Comparison::Eq(1)).lazy().iter();
+    assert!(matches!(
+        invalid_lazy_iter,
+        Err(Error::InvalidQuery(message)) if message.contains("unknown column `not_a_column`")
+    ));
+
+    let invalid_lazy_try_iter = Person::q("not_a_column", Comparison::Eq(1))
+        .lazy()
+        .try_iter();
+    assert!(matches!(
+        invalid_lazy_try_iter,
+        Err(Error::InvalidQuery(message)) if message.contains("unknown column `not_a_column`")
+    ));
+
+    let invalid_chunked_iter = Person::q("not_a_column", Comparison::Eq(1))
+        .chunked(2)
+        .iter();
+    assert!(matches!(
+        invalid_chunked_iter,
+        Err(Error::InvalidQuery(message)) if message.contains("unknown column `not_a_column`")
+    ));
+
+    let invalid_chunked_try_iter = Person::q("not_a_column", Comparison::Eq(1))
+        .chunked(2)
+        .try_iter();
+    assert!(matches!(
+        invalid_chunked_try_iter,
         Err(Error::InvalidQuery(message)) if message.contains("unknown column `not_a_column`")
     ));
 
