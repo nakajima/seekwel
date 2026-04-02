@@ -57,7 +57,7 @@ let person = Person::q("name", Comparison::Eq("Pat")).first()?; // => Option<Per
 let person = Person::q("name", Comparison::Ne("Pat")).first()?; // => Option<Person<Persisted>>
 let people = Person::q("age", Comparison::Gte(21)).all()?; // => Vec<Person<Persisted>>
 
-// q(...) returns a query builder. Use first() or all() to execute it.
+// q(...) returns a query builder. Use first(), all(), or iter() to execute it.
 let people = Person::q("age", Comparison::Gte(21))
     .and(Person::q("name", Comparison::Eq("Pat")))
     .all()?;
@@ -72,9 +72,13 @@ let people = Person::q("age", Comparison::Gte(21))
     .and(Person::q("name", Comparison::Eq("Pat")).or(Person::q("name", Comparison::Eq("Sam"))))
     .all()?;
 
+// You can also iterate over query results.
+for person in Person::q("age", Comparison::Gte(21)).iter()? {
+    println!("{}", person.name);
+}
+
 // Eq(None::<T>) becomes IS NULL. Ne(None::<T>) becomes IS NOT NULL.
 let people = Person::q("age", Comparison::Eq(None::<u8>)).all()?;
 
 // Comparison supports Eq, Ne, Gt, Gte, Lt, and Lte.
 ```
-

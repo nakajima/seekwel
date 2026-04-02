@@ -83,6 +83,16 @@ fn find_and_query_records() -> Result<(), Error> {
     assert_eq!(chained_after_or.len(), 1);
     assert_eq!(chained_after_or[0].id, sam.id);
 
+    let mut iterated_ids = Vec::new();
+    for person in Person::q("name", Comparison::Eq("Pat"))
+        .or(Person::q("name", Comparison::Eq("Sam")))
+        .iter()?
+    {
+        iterated_ids.push(person.id);
+    }
+    iterated_ids.sort_unstable();
+    assert_eq!(iterated_ids, vec![pat.id, sam.id]);
+
     let missing = Person::q("name", Comparison::Eq("Taylor")).first()?;
     assert!(missing.is_none());
 
@@ -104,6 +114,12 @@ fn find_and_query_records() -> Result<(), Error> {
     assert!(matches!(
         invalid_null_comparison,
         Err(Error::InvalidQuery(message)) if message.contains("Gt comparisons do not support NULL")
+    ));
+
+    let invalid_iter = Person::q("not_a_column", Comparison::Eq(1)).iter();
+    assert!(matches!(
+        invalid_iter,
+        Err(Error::InvalidQuery(message)) if message.contains("unknown column `not_a_column`")
     ));
 
     Ok(())

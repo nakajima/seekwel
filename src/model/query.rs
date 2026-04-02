@@ -75,6 +75,10 @@ impl<M: PersistedModel> Query<M> {
         conn.query_all(&query, params_from_iter(params), M::from_row)
     }
 
+    pub fn iter(self) -> Result<std::vec::IntoIter<M>, Error> {
+        Ok(self.all()?.into_iter())
+    }
+
     fn build_query(self, limit_one: bool) -> Result<(String, Vec<Value>), Error> {
         let mut params = Vec::new();
         let clause = self.expression.into_clause::<M>(&mut params)?;
