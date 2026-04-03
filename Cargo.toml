@@ -10,4 +10,4 @@ license = "BSD-3-Clause"
 
 [dependencies]
 rusqlite = { version = "0.39.0", features = ["bundled-sqlcipher"] }
-seekwel-macros = { version = "0.1.3", path = "seekwel-macros" }
+seekwel-macros = { version = "0.1.4", path = "seekwel-macros" }
