@@ -11,7 +11,10 @@ mod query;
 mod sql_field;
 
 pub use comparison::{Comparison, ComparisonOperand};
-pub use query::{ChunkedQuery, LazyQuery, Query};
+pub use query::{
+    Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Lazy, LazyIter, LazyQuery, LazyTryIter,
+    Query, QueryDsl,
+};
 pub use sql_field::SqlField;
 #[doc(hidden)]
 pub use sql_field::column;
@@ -23,6 +26,10 @@ pub struct ColumnDef {
     pub nullable: bool,
 }
 
+pub trait Column: Copy + Clone {
+    fn as_str(self) -> &'static str;
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NewRecord;
 
@@ -30,6 +37,8 @@ pub struct NewRecord;
 pub struct Persisted;
 
 pub trait Model: Sized {
+    type Column: Column;
+
     fn table_name() -> &'static str;
     fn columns() -> &'static [ColumnDef];
     /// Returns values for non-id columns, in the same order as `columns()`.
@@ -68,19 +77,4 @@ pub fn insert<M: Model>(model: &M) -> Result<u64, Error> {
         &sql::insert(M::table_name(), M::columns()),
         params_from_iter(params),
     )
-}
-
-fn validate_column<M: Model>(column: &str) -> Result<(), Error> {
-    if column == "id"
-        || M::columns()
-            .iter()
-            .any(|candidate| candidate.name == column)
-    {
-        return Ok(());
-    }
-
-    Err(Error::InvalidQuery(format!(
-        "unknown column `{column}` for `{}`",
-        M::table_name()
-    )))
 }

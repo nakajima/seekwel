@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    Data, DeriveInput, Field, Fields, GenericParam, ItemStruct, Type, parse_macro_input,
+    Data, DeriveInput, Field, Fields, GenericParam, Ident, ItemStruct, Type, parse_macro_input,
     parse_quote,
 };
 
@@ -69,6 +69,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
     let vis = &input.vis;
     let table_name = name.to_string().to_lowercase();
     let builder_name = format_ident!("{}Builder", name);
+    let columns_name = format_ident!("{}Columns", name);
 
     if let Err(error) = validate_typestate_generics(&input.generics) {
         return error.to_compile_error().into();
@@ -133,6 +134,14 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
     let col_names: Vec<_> = columns
         .iter()
         .map(|field| field.ident.as_ref().unwrap())
+        .collect();
+    let column_variants: Vec<_> = columns
+        .iter()
+        .map(|field| column_variant_ident(field.ident.as_ref().unwrap()))
+        .collect();
+    let column_names: Vec<_> = columns
+        .iter()
+        .map(|field| field.ident.as_ref().unwrap().to_string())
         .collect();
     let column_defs = columns.iter().map(|field| {
         let field_name = field.ident.as_ref().unwrap().to_string();
@@ -208,7 +217,24 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let expanded = quote! {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #vis enum #columns_name {
+            Id,
+            #(#column_variants,)*
+        }
+
+        impl seekwel::model::Column for #columns_name {
+            fn as_str(self) -> &'static str {
+                match self {
+                    Self::Id => "id",
+                    #(Self::#column_variants => #column_names,)*
+                }
+            }
+        }
+
         impl #impl_generics seekwel::model::Model for #name #ty_generics #where_clause {
+            type Column = #columns_name;
+
             fn table_name() -> &'static str {
                 #table_name
             }
@@ -253,7 +279,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
             }
 
             pub fn q<T>(
-                column: &str,
+                column: #columns_name,
                 comparison: seekwel::model::Comparison<T>,
             ) -> seekwel::model::Query<Self>
             where
@@ -353,4 +379,24 @@ fn option_inner_type(ty: &Type) -> Option<&Type> {
         }
     }
     None
+}
+
+fn column_variant_ident(ident: &Ident) -> Ident {
+    let raw = ident.to_string();
+    let raw = raw.strip_prefix("r#").unwrap_or(&raw);
+
+    let mut variant = String::new();
+    for part in raw.split('_').filter(|part| !part.is_empty()) {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            variant.extend(first.to_uppercase());
+            variant.extend(chars);
+        }
+    }
+
+    if variant.is_empty() {
+        variant.push_str("Column");
+    }
+
+    format_ident!("{}", variant)
 }

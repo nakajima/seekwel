@@ -24,7 +24,7 @@ let conn = Connection::get()?;
 Everything you might want to save in the db is a "Model". There's a `model` macro that sets everything up all nice.
 
 ```rs
-use seekwel::{Comparison, connection::Connection};
+use seekwel::{Comparison, connection::Connection, prelude::*};
 
 #[seekwel::model]
 struct Person {
@@ -51,65 +51,67 @@ let person2 = Person::builder().name("Sam").create()?;
 // Persisted records can be reloaded.
 person.reload()?;
 
+// Query builder methods are provided by the prelude.
+// The model macro also generates a `PersonColumns` enum for type-safe queries.
 // Persisted records can be queried.
 let person = Person::find(1)?; // => Person<Persisted>
-let person = Person::q("name", Comparison::Eq("Pat")).first()?; // => Option<Person<Persisted>>
-let person = Person::q("name", Comparison::Ne("Pat")).first()?; // => Option<Person<Persisted>>
-let people = Person::q("age", Comparison::Gte(21)).all()?; // => Vec<Person<Persisted>>
+let person = Person::q(PersonColumns::Name, Comparison::Eq("Pat")).first()?; // => Option<Person<Persisted>>
+let person = Person::q(PersonColumns::Name, Comparison::Ne("Pat")).first()?; // => Option<Person<Persisted>>
+let people = Person::q(PersonColumns::Age, Comparison::Gte(21)).all()?; // => Vec<Person<Persisted>>
 
 // q(...) returns a query builder. Use first(), all(), iter(), or try_iter() to execute it.
-let people = Person::q("age", Comparison::Gte(21))
-    .and(Person::q("name", Comparison::Eq("Pat")))
+let people = Person::q(PersonColumns::Age, Comparison::Gte(21))
+    .and(Person::q(PersonColumns::Name, Comparison::Eq("Pat")))
     .all()?;
 
 // Chaining q(...) on a query adds another AND clause.
-let people = Person::q("age", Comparison::Gte(21))
-    .q("name", Comparison::Eq("Pat"))
+let people = Person::q(PersonColumns::Age, Comparison::Gte(21))
+    .q(PersonColumns::Name, Comparison::Eq("Pat"))
     .all()?;
 
 // You can also group OR clauses.
-let people = Person::q("age", Comparison::Gte(21))
-    .and(Person::q("name", Comparison::Eq("Pat")).or(Person::q("name", Comparison::Eq("Sam"))))
+let people = Person::q(PersonColumns::Age, Comparison::Gte(21))
+    .and(Person::q(PersonColumns::Name, Comparison::Eq("Pat")).or(Person::q(PersonColumns::Name, Comparison::Eq("Sam"))))
     .all()?;
 
 // You can also iterate over query results.
-for person in Person::q("age", Comparison::Gte(21)).iter()? {
+for person in Person::q(PersonColumns::Age, Comparison::Gte(21)).iter()? {
     println!("{}", person.name);
 }
 
 // Or iterate directly. This uses the plain/panicking path.
-for person in Person::q("age", Comparison::Gte(21)) {
+for person in Person::q(PersonColumns::Age, Comparison::Gte(21)) {
     println!("{}", person.name);
 }
 
 // Eager try_iter() still yields plain records.
-for person in Person::q("age", Comparison::Gte(21)).try_iter()? {
+for person in Person::q(PersonColumns::Age, Comparison::Gte(21)).try_iter()? {
     println!("{}", person.name);
 }
 
 // Fetch strategy modifiers only affect iter(), try_iter(), and direct iteration.
-for person in Person::q("age", Comparison::Gte(21)).lazy().iter()? {
+for person in Person::q(PersonColumns::Age, Comparison::Gte(21)).lazy().iter()? {
     println!("{}", person.name);
 }
 
 // Lazy try_iter() yields Result items.
-for person in Person::q("age", Comparison::Gte(21)).lazy().try_iter()? {
+for person in Person::q(PersonColumns::Age, Comparison::Gte(21)).lazy().try_iter()? {
     let person = person?;
     println!("{}", person.name);
 }
 
 // chunked(n) yields chunks.
-for people in Person::q("age", Comparison::Gte(21)).chunked(100) {
+for people in Person::q(PersonColumns::Age, Comparison::Gte(21)).chunked(100) {
     for person in people {
         println!("{}", person.name);
     }
 }
 
 // first() and all() stay eager even on lazy/chunked queries.
-let people = Person::q("age", Comparison::Gte(21)).lazy().all()?;
+let people = Person::q(PersonColumns::Age, Comparison::Gte(21)).lazy().all()?;
 
 // Eq(None::<T>) becomes IS NULL. Ne(None::<T>) becomes IS NOT NULL.
-let people = Person::q("age", Comparison::Eq(None::<u8>)).all()?;
+let people = Person::q(PersonColumns::Age, Comparison::Eq(None::<u8>)).all()?;
 
 // Comparison supports Eq, Ne, Gt, Gte, Lt, and Lte.
 ```

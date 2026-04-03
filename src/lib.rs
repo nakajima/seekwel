@@ -5,5 +5,12 @@ pub mod error;
 pub mod model;
 pub mod sql;
 
-pub use model::{ChunkedQuery, Comparison, LazyQuery, NewRecord, Persisted, Query, SqlField};
+pub use model::{
+    Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, Lazy, LazyIter, LazyQuery,
+    LazyTryIter, NewRecord, Persisted, Query, QueryDsl, SqlField,
+};
 pub use seekwel_derive::{Model, model};
+
+pub mod prelude {
+    pub use crate::QueryDsl;
+}

@@ -3,6 +3,7 @@ use seekwel::Comparison;
 use seekwel::SqlField;
 use seekwel::connection::Connection;
 use seekwel::error::Error;
+use seekwel::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Email(String);
@@ -48,13 +49,14 @@ fn user_defined_sql_field_round_trips() -> Result<(), Error> {
     );
 
     let by_email = Contact::q(
-        "email",
+        ContactColumns::Email,
         Comparison::Eq(Email("alex@example.com".to_string())),
     )
     .first()?;
     assert_eq!(by_email.map(|contact| contact.id), Some(alex.id));
 
-    let null_backup = Contact::q("backup_email", Comparison::Eq(None::<Email>)).first()?;
+    let null_backup =
+        Contact::q(ContactColumns::BackupEmail, Comparison::Eq(None::<Email>)).first()?;
     assert_eq!(null_backup.map(|contact| contact.id), Some(alex.id));
 
     Ok(())
