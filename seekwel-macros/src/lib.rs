@@ -302,9 +302,19 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
                 seekwel::model::Query::new(column, comparison)
             }
 
+            #[doc = "Persists the current in-memory field values back to the database."]
+            pub fn save(&self) -> Result<(), seekwel::error::Error> {
+                <Self as seekwel::model::PersistedModel>::save(self)
+            }
+
             #[doc = "Reloads this persisted record from the database."]
             pub fn reload(&mut self) -> Result<(), seekwel::error::Error> {
                 <Self as seekwel::model::PersistedModel>::reload(self)
+            }
+
+            #[doc = "Deletes this persisted record from the database."]
+            pub fn delete(self) -> Result<(), seekwel::error::Error> {
+                <Self as seekwel::model::PersistedModel>::delete(self)
             }
         }
 

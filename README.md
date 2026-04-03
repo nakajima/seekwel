@@ -48,8 +48,14 @@ let mut person = draft.save()?; // => Person<Persisted>
 // Or build + persist in one step.
 let person2 = Person::builder().name("Sam").create()?;
 
-// Persisted records can be reloaded.
+// Persisted records can be saved again after local changes, then reloaded.
+person.age = Some(124);
+person.save()?;
 person.reload()?;
+
+// Persisted records can also be deleted.
+let delete_me = Person::builder().name("Delete Me").create()?;
+delete_me.delete()?;
 
 // Query builder methods are provided by the prelude.
 // The model macro also generates a `PersonColumns` enum for type-safe queries.

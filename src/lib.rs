@@ -22,12 +22,19 @@
 //! Connection::memory()?;
 //! Person::create_table()?;
 //!
-//! let pat = Person::builder().name("Pat").age(Some(20)).create()?;
+//! let mut pat = Person::builder().name("Pat").age(Some(20)).create()?;
 //! let everyone = Person::all()?;
 //! assert_eq!(everyone.len(), 1);
 //!
+//! pat.age = None;
+//! pat.save()?;
+//!
 //! let found = Person::q(PersonColumns::Name, Comparison::Eq("Pat")).first()?;
 //! assert_eq!(found.map(|person| person.id), Some(pat.id));
+//!
+//! let pat_id = pat.id;
+//! pat.delete()?;
+//! assert!(Person::find(pat_id).is_err());
 //! # Ok(())
 //! # }
 //! ```

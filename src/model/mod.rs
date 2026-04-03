@@ -90,9 +90,39 @@ pub trait PersistedModel: Model + Sized {
         )
     }
 
+    /// Persists the current in-memory field values back to the database.
+    fn save(&self) -> Result<(), Error> {
+        let mut params = self.params();
+        params.push(Value::Integer(self.id() as i64));
+
+        let conn = Connection::get()?;
+        let changed = conn.execute(
+            &sql::update_by_id(Self::table_name(), Self::columns()),
+            params_from_iter(params),
+        )?;
+
+        if changed == 0 {
+            return Err(Error::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+        }
+
+        Ok(())
+    }
+
     /// Re-fetches the current row from the database and overwrites `self`.
     fn reload(&mut self) -> Result<(), Error> {
         *self = Self::find(self.id())?;
+        Ok(())
+    }
+
+    /// Deletes this persisted row from the database.
+    fn delete(self) -> Result<(), Error> {
+        let conn = Connection::get()?;
+        let changed = conn.execute(&sql::delete_by_id(Self::table_name()), [self.id() as i64])?;
+
+        if changed == 0 {
+            return Err(Error::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+        }
+
         Ok(())
     }
 }

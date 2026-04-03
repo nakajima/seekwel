@@ -46,6 +46,28 @@ pub fn insert(table_name: &str, columns: &[ColumnDef]) -> String {
     format!("INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})")
 }
 
+/// Builds an `UPDATE ... WHERE id = ?n` statement for a model table.
+pub fn update_by_id(table_name: &str, columns: &[ColumnDef]) -> String {
+    if columns.is_empty() {
+        return format!("UPDATE {table_name} SET id = id WHERE id = ?1");
+    }
+
+    let assignments = columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| format!("{} = ?{}", column.name, index + 1))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let id_placeholder = columns.len() + 1;
+
+    format!("UPDATE {table_name} SET {assignments} WHERE id = ?{id_placeholder}")
+}
+
+/// Builds a `DELETE ... WHERE id = ?1` statement for a model table.
+pub fn delete_by_id(table_name: &str) -> String {
+    format!("DELETE FROM {table_name} WHERE id = ?1")
+}
+
 /// Builds a `SELECT ... WHERE id = ?1` statement for a model table.
 pub fn select_by_id(table_name: &str, columns: &[ColumnDef]) -> String {
     format!(
@@ -137,6 +159,27 @@ mod tests {
     #[test]
     fn test_insert_no_columns() {
         assert_eq!(insert("person", &[]), "INSERT INTO person DEFAULT VALUES");
+    }
+
+    #[test]
+    fn test_update_by_id() {
+        assert_eq!(
+            update_by_id("person", test_columns()),
+            "UPDATE person SET name = ?1, age = ?2 WHERE id = ?3"
+        );
+    }
+
+    #[test]
+    fn test_update_by_id_no_columns() {
+        assert_eq!(
+            update_by_id("empty", &[]),
+            "UPDATE empty SET id = id WHERE id = ?1"
+        );
+    }
+
+    #[test]
+    fn test_delete_by_id() {
+        assert_eq!(delete_by_id("person"), "DELETE FROM person WHERE id = ?1");
     }
 
     #[test]
