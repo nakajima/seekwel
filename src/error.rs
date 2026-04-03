@@ -1,11 +1,19 @@
+//! Error types returned by seekwel.
+
 use std::fmt;
 
+/// Errors produced by connection, model, and query operations.
 #[derive(Debug)]
 pub enum Error {
+    /// An error returned by `rusqlite`.
     Sqlite(rusqlite::Error),
+    /// The global connection was initialized more than once.
     AlreadyInitialized,
+    /// The global connection was used before initialization.
     NotInitialized,
+    /// A required builder field was not provided.
     MissingField(String),
+    /// The requested query cannot be represented safely.
     InvalidQuery(String),
 }
 

@@ -5,6 +5,9 @@ use crate::error::Error;
 use super::super::{Column, Comparison, ComparisonOperand, Model, PersistedModel};
 use super::{Chunked, Lazy, QueryDsl, QueryExpression, assert_chunk_size};
 
+/// An eager query value for a persisted model.
+///
+/// You usually obtain this from `Model::q(...)` or `Model::query()`.
 #[derive(Debug, Clone)]
 pub struct Query<M> {
     expression: QueryExpression,
@@ -12,6 +15,14 @@ pub struct Query<M> {
 }
 
 impl<M: Model> Query<M> {
+    pub(super) fn root() -> Self {
+        Self {
+            expression: QueryExpression::Empty,
+            __seekwel_model: PhantomData,
+        }
+    }
+
+    /// Creates a query with a single predicate.
     pub fn new<T>(column: M::Column, comparison: Comparison<T>) -> Self
     where
         T: ComparisonOperand,

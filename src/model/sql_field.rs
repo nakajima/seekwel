@@ -2,13 +2,69 @@ use rusqlite::types::{Value, ValueRef};
 
 use super::ColumnDef;
 
+/// Describes how a Rust type is stored in SQLite.
+///
+/// Built-in implementations are provided for common scalar types, `String`,
+/// `rusqlite::types::Value`, and `Option<T>`.
+///
+/// # Example
+///
+/// ```rust
+/// use rusqlite::types::Value;
+/// use seekwel::{Comparison, SqlField, connection::Connection, prelude::*};
+///
+/// #[derive(Debug, Clone, PartialEq, Eq)]
+/// struct Email(String);
+///
+/// impl SqlField for Email {
+///     const SQL_TYPE: &'static str = "TEXT";
+///
+///     fn to_sql_value(&self) -> Value {
+///         Value::Text(self.0.clone())
+///     }
+///
+///     fn from_sql_row(row: &rusqlite::Row, index: usize) -> rusqlite::Result<Self> {
+///         Ok(Self(row.get(index)?))
+///     }
+/// }
+///
+/// #[seekwel::model]
+/// struct Contact {
+///     id: u64,
+///     email: Email,
+/// }
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Connection::memory()?;
+/// Contact::create_table()?;
+/// Contact::builder()
+///     .email(Email("pat@example.com".to_string()))
+///     .create()?;
+///
+/// let found = Contact::q(
+///     ContactColumns::Email,
+///     Comparison::Eq(Email("pat@example.com".to_string())),
+/// )
+/// .first()?;
+/// assert!(found.is_some());
+/// # Ok(())
+/// # }
+/// ```
 pub trait SqlField: Sized {
+    /// The SQLite type used when creating columns of this field type.
     const SQL_TYPE: &'static str;
+    /// Whether values of this type may be stored as `NULL`.
     const NULLABLE: bool = false;
 
+    /// Converts the Rust value into a SQLite value for inserts and updates.
     fn to_sql_value(&self) -> Value;
+    /// Reads the value from a SQLite row at `index`.
     fn from_sql_row(row: &rusqlite::Row, index: usize) -> rusqlite::Result<Self>;
 
+    /// Converts the value into a comparison operand.
+    ///
+    /// The default implementation uses [`Self::to_sql_value`]. Types like
+    /// `Option<T>` override this to represent SQL `NULL`.
     fn into_sql_comparison_value(self) -> Option<Value> {
         Some(self.to_sql_value())
     }

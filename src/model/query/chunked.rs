@@ -9,12 +9,15 @@ use crate::error::Error;
 use super::super::PersistedModel;
 use super::{Lazy, Query, QueryDsl, assert_chunk_size};
 
+/// A query wrapper that fetches matching rows in chunks.
 #[derive(Debug, Clone)]
 pub struct Chunked<Q> {
     pub(super) inner: Q,
     pub(super) chunk_size: usize,
 }
 
+/// The fallible iterator returned by [`Chunked::try_iter`] and
+/// [`QueryDsl::try_iter`] on chunked queries.
 #[derive(Debug)]
 pub struct ChunkedTryIter<M> {
     query: String,
@@ -25,6 +28,8 @@ pub struct ChunkedTryIter<M> {
     __seekwel_model: PhantomData<M>,
 }
 
+/// The plain iterator returned by [`Chunked::iter`] and [`QueryDsl::iter`] on
+/// chunked queries.
 #[derive(Debug)]
 pub struct ChunkedIter<M> {
     inner: ChunkedTryIter<M>,

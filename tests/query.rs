@@ -23,6 +23,39 @@ fn find_and_query_records() -> Result<(), Error> {
     assert_eq!(found.name, "Pat");
     assert_eq!(found.age, Some(20));
 
+    let everyone = Person::all()?;
+    assert_eq!(everyone.len(), 3);
+
+    let first_person = Person::first()?;
+    assert!(first_person.is_some());
+
+    let model_and = Person::and(Person::q(PersonColumns::Name, Comparison::Eq("Pat"))).all()?;
+    assert_eq!(model_and.len(), 1);
+    assert_eq!(model_and[0].id, pat.id);
+
+    let model_or = Person::or(Person::q(PersonColumns::Name, Comparison::Eq("Pat"))).all()?;
+    assert_eq!(model_or.len(), 1);
+    assert_eq!(model_or[0].id, pat.id);
+
+    let mut model_iter_ids: Vec<_> = Person::iter()?.map(|person| person.id).collect();
+    model_iter_ids.sort_unstable();
+    assert_eq!(model_iter_ids, vec![pat.id, sam.id, alex.id]);
+
+    let model_lazy_try_ids: Result<Vec<_>, _> = Person::lazy()
+        .try_iter()?
+        .map(|person| person.map(|person| person.id))
+        .collect();
+    let mut model_lazy_try_ids = model_lazy_try_ids?;
+    model_lazy_try_ids.sort_unstable();
+    assert_eq!(model_lazy_try_ids, vec![pat.id, sam.id, alex.id]);
+
+    let mut model_chunked_ids = Vec::new();
+    for people in Person::chunked(2) {
+        model_chunked_ids.extend(people.into_iter().map(|person| person.id));
+    }
+    model_chunked_ids.sort_unstable();
+    assert_eq!(model_chunked_ids, vec![pat.id, sam.id, alex.id]);
+
     let by_name = Person::q(PersonColumns::Name, Comparison::Eq("Sam")).first()?;
     assert_eq!(by_name.map(|person| person.id), Some(sam.id));
 

@@ -55,6 +55,8 @@ person.reload()?;
 // The model macro also generates a `PersonColumns` enum for type-safe queries.
 // Persisted records can be queried.
 let person = Person::find(1)?; // => Person<Persisted>
+let people = Person::all()?; // => Vec<Person<Persisted>>
+let person = Person::first()?; // => Option<Person<Persisted>>
 let person = Person::q(PersonColumns::Name, Comparison::Eq("Pat")).first()?; // => Option<Person<Persisted>>
 let person = Person::q(PersonColumns::Name, Comparison::Ne("Pat")).first()?; // => Option<Person<Persisted>>
 let people = Person::q(PersonColumns::Age, Comparison::Gte(21)).all()?; // => Vec<Person<Persisted>>
@@ -89,7 +91,11 @@ for person in Person::q(PersonColumns::Age, Comparison::Gte(21)).try_iter()? {
     println!("{}", person.name);
 }
 
-// Fetch strategy modifiers only affect iter(), try_iter(), and direct iteration.
+// Fetch strategy modifiers also work directly from the model type.
+for person in Person::lazy().iter()? {
+    println!("{}", person.name);
+}
+
 for person in Person::q(PersonColumns::Age, Comparison::Gte(21)).lazy().iter()? {
     println!("{}", person.name);
 }

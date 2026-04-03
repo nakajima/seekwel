@@ -9,11 +9,14 @@ use crate::error::Error;
 use super::super::PersistedModel;
 use super::{Chunked, Query, QueryDsl, assert_chunk_size};
 
+/// A query wrapper that fetches matching rows one at a time.
 #[derive(Debug, Clone)]
 pub struct Lazy<Q> {
     pub(super) inner: Q,
 }
 
+/// The fallible iterator returned by [`Lazy::try_iter`] and [`QueryDsl::try_iter`]
+/// on lazy queries.
 #[derive(Debug)]
 pub struct LazyTryIter<M> {
     query: String,
@@ -23,6 +26,8 @@ pub struct LazyTryIter<M> {
     __seekwel_model: PhantomData<M>,
 }
 
+/// The plain iterator returned by [`Lazy::iter`] and [`QueryDsl::iter`] on lazy
+/// queries.
 #[derive(Debug)]
 pub struct LazyIter<M> {
     inner: LazyTryIter<M>,

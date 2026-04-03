@@ -1,5 +1,11 @@
+//! Low-level SQL string generation helpers.
+//!
+//! Most users should prefer the model and query APIs instead of calling these
+//! functions directly.
+
 use crate::model::ColumnDef;
 
+/// Builds a `CREATE TABLE IF NOT EXISTS` statement for a model table.
 pub fn create_table(table_name: &str, columns: &[ColumnDef]) -> String {
     let col_defs: Vec<String> = columns
         .iter()
@@ -22,6 +28,7 @@ pub fn create_table(table_name: &str, columns: &[ColumnDef]) -> String {
     }
 }
 
+/// Builds an `INSERT` statement for a model table.
 pub fn insert(table_name: &str, columns: &[ColumnDef]) -> String {
     if columns.is_empty() {
         return format!("INSERT INTO {table_name} DEFAULT VALUES");
@@ -39,6 +46,7 @@ pub fn insert(table_name: &str, columns: &[ColumnDef]) -> String {
     format!("INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})")
 }
 
+/// Builds a `SELECT ... WHERE id = ?1` statement for a model table.
 pub fn select_by_id(table_name: &str, columns: &[ColumnDef]) -> String {
     format!(
         "SELECT {} FROM {table_name} WHERE id = ?1",
@@ -46,22 +54,35 @@ pub fn select_by_id(table_name: &str, columns: &[ColumnDef]) -> String {
     )
 }
 
-pub fn select_where(
+/// Builds a `SELECT` statement with an optional `WHERE` clause and optional
+/// `LIMIT 1`.
+pub fn select(
     table_name: &str,
     columns: &[ColumnDef],
-    clause: &str,
+    clause: Option<&str>,
     limit_one: bool,
 ) -> String {
-    let mut query = format!(
-        "SELECT {} FROM {table_name} WHERE {clause}",
-        select_columns(columns)
-    );
+    let mut query = format!("SELECT {} FROM {table_name}", select_columns(columns));
+
+    if let Some(clause) = clause {
+        query.push_str(&format!(" WHERE {clause}"));
+    }
 
     if limit_one {
         query.push_str(" LIMIT 1");
     }
 
     query
+}
+
+/// Builds a `SELECT` statement with a required `WHERE` clause.
+pub fn select_where(
+    table_name: &str,
+    columns: &[ColumnDef],
+    clause: &str,
+    limit_one: bool,
+) -> String {
+    select(table_name, columns, Some(clause), limit_one)
 }
 
 fn select_columns(columns: &[ColumnDef]) -> String {
@@ -135,10 +156,26 @@ mod tests {
     }
 
     #[test]
+    fn test_select_all() {
+        assert_eq!(
+            select("person", test_columns(), None, false),
+            "SELECT id, name, age FROM person"
+        );
+    }
+
+    #[test]
     fn test_select_where_first() {
         assert_eq!(
             select_where("person", test_columns(), "name = ?1", true),
             "SELECT id, name, age FROM person WHERE name = ?1 LIMIT 1"
+        );
+    }
+
+    #[test]
+    fn test_select_all_first() {
+        assert_eq!(
+            select("person", test_columns(), None, true),
+            "SELECT id, name, age FROM person LIMIT 1"
         );
     }
 }

@@ -143,6 +143,11 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
         .iter()
         .map(|field| field.ident.as_ref().unwrap().to_string())
         .collect();
+    let column_variant_docs = column_names.iter().map(|column_name| {
+        quote! {
+            #[doc = concat!("The `", #column_name, "` column.")]
+        }
+    });
     let column_defs = columns.iter().map(|field| {
         let field_name = field.ident.as_ref().unwrap().to_string();
         let ty = &field.ty;
@@ -184,9 +189,11 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
 
     let builder_setters = columns.iter().map(|field| {
         let field_name = field.ident.as_ref().unwrap();
+        let field_name_str = field_name.to_string();
         let ty = &field.ty;
         if is_option_type(ty) {
             quote! {
+                #[doc = concat!("Sets the `", #field_name_str, "` field.")]
                 pub fn #field_name(mut self, value: #ty) -> Self {
                     self.#field_name.set(value);
                     self
@@ -194,6 +201,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
             }
         } else {
             quote! {
+                #[doc = concat!("Sets the `", #field_name_str, "` field.")]
                 pub fn #field_name(mut self, value: impl Into<#ty>) -> Self {
                     self.#field_name.set(value);
                     self
@@ -217,10 +225,12 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let expanded = quote! {
+        #[doc = concat!("Typed columns for [`", stringify!(#name), "`].")]
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #vis enum #columns_name {
+            #[doc = "The `id` column."]
             Id,
-            #(#column_variants,)*
+            #(#column_variant_docs #column_variants,)*
         }
 
         impl seekwel::model::Column for #columns_name {
@@ -264,20 +274,24 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
         }
 
         impl #name<seekwel::Persisted> {
+            #[doc = concat!("Creates a builder for [`", stringify!(#name), "<seekwel::NewRecord>`].")]
             pub fn builder() -> #builder_name {
                 #builder_name {
                     #(#builder_defaults,)*
                 }
             }
 
+            #[doc = "Creates the backing SQLite table if it does not already exist."]
             pub fn create_table() -> Result<(), seekwel::error::Error> {
                 <Self as seekwel::model::Model>::create_table()
             }
 
+            #[doc = "Finds a persisted record by primary key."]
             pub fn find(id: u64) -> Result<Self, seekwel::error::Error> {
                 <Self as seekwel::model::PersistedModel>::find(id)
             }
 
+            #[doc = "Starts a typed query for this model."]
             pub fn q<T>(
                 column: #columns_name,
                 comparison: seekwel::model::Comparison<T>,
@@ -288,12 +302,14 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
                 seekwel::model::Query::new(column, comparison)
             }
 
+            #[doc = "Reloads this persisted record from the database."]
             pub fn reload(&mut self) -> Result<(), seekwel::error::Error> {
                 <Self as seekwel::model::PersistedModel>::reload(self)
             }
         }
 
         impl #name<seekwel::NewRecord> {
+            #[doc = "Inserts this record and returns the persisted value."]
             pub fn save(self) -> Result<#name<seekwel::Persisted>, seekwel::error::Error> {
                 let id = seekwel::model::insert(&self)?;
                 Ok(#name {
@@ -304,6 +320,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
             }
         }
 
+        #[doc = concat!("Builder for [`", stringify!(#name), "<seekwel::NewRecord>`].")]
         #vis struct #builder_name {
             #(#builder_fields,)*
         }
@@ -311,6 +328,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
         impl #builder_name {
             #(#builder_setters)*
 
+            #[doc = concat!("Builds [`", stringify!(#name), "<seekwel::NewRecord>`].")]
             pub fn build(self) -> Result<#name<seekwel::NewRecord>, seekwel::error::Error> {
                 #(#build_extracts)*
 
@@ -321,6 +339,7 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
                 })
             }
 
+            #[doc = concat!("Builds and inserts [`", stringify!(#name), "<seekwel::Persisted>`].")]
             pub fn create(self) -> Result<#name<seekwel::Persisted>, seekwel::error::Error> {
                 self.build()?.save()
             }

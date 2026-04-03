@@ -4,17 +4,31 @@ use crate::error::Error;
 
 use super::SqlField;
 
+/// A typed comparison used in query predicates.
+///
+/// `Eq(None::<T>)` becomes `IS NULL`, and `Ne(None::<T>)` becomes
+/// `IS NOT NULL`.
 #[derive(Debug, Clone)]
 pub enum Comparison<T> {
+    /// Equal to a value.
     Eq(T),
+    /// Not equal to a value.
     Ne(T),
+    /// Greater than a value.
     Gt(T),
+    /// Greater than or equal to a value.
     Gte(T),
+    /// Less than a value.
     Lt(T),
+    /// Less than or equal to a value.
     Lte(T),
 }
 
+/// A value that can appear on the right-hand side of a [`Comparison`].
 pub trait ComparisonOperand {
+    /// Converts the value into an owned SQLite comparison value.
+    ///
+    /// Returning `None` represents SQL `NULL`.
     fn into_sql_value(self) -> Option<Value>;
 }
 
