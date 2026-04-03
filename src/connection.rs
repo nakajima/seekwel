@@ -85,12 +85,7 @@ impl Connection {
     }
 
     /// Executes a query and returns either zero or one row.
-    pub fn query_optional<T, P, F>(
-        &self,
-        query: &str,
-        params: P,
-        f: F,
-    ) -> Result<Option<T>, Error>
+    pub fn query_optional<T, P, F>(&self, query: &str, params: P, f: F) -> Result<Option<T>, Error>
     where
         P: Params,
         F: FnOnce(&rusqlite::Row) -> rusqlite::Result<T>,
