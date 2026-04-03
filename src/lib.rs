@@ -49,9 +49,9 @@ pub use model::{
 };
 
 /// Derive macro that implements seekwel's model traits for a typestate model struct.
-pub use seekwel_derive::Model;
+pub use seekwel_macros::Model;
 /// Attribute macro that turns a plain struct into a seekwel model.
-pub use seekwel_derive::model;
+pub use seekwel_macros::model;
 
 /// Common trait imports for query building.
 pub mod prelude {
