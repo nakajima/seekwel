@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::error::Error;
 
 use super::super::{Column, Comparison, ComparisonOperand, Model, PersistedModel};
-use super::{Chunked, Lazy, QueryDsl, QueryExpression, assert_chunk_size};
+use super::{Chunked, Lazy, Order, OrderTerm, QueryDsl, QueryExpression, assert_chunk_size};
 
 /// An eager query value for a persisted model.
 ///
@@ -11,6 +11,9 @@ use super::{Chunked, Lazy, QueryDsl, QueryExpression, assert_chunk_size};
 #[derive(Debug, Clone)]
 pub struct Query<M> {
     expression: QueryExpression,
+    ordering: Vec<OrderTerm>,
+    limit: Option<usize>,
+    offset: usize,
     __seekwel_model: PhantomData<M>,
 }
 
@@ -18,6 +21,9 @@ impl<M: Model> Query<M> {
     pub(super) fn root() -> Self {
         Self {
             expression: QueryExpression::Empty,
+            ordering: Vec::new(),
+            limit: None,
+            offset: 0,
             __seekwel_model: PhantomData,
         }
     }
@@ -32,11 +38,15 @@ impl<M: Model> Query<M> {
                 column: column.as_str(),
                 comparison: comparison.into_prepared(),
             },
+            ordering: Vec::new(),
+            limit: None,
+            offset: 0,
             __seekwel_model: PhantomData,
         }
     }
 }
 
+#[allow(private_interfaces)]
 impl<M: PersistedModel + 'static> QueryDsl for Query<M> {
     type Model = M;
     type Lazy = Lazy<Self>;
@@ -49,6 +59,9 @@ impl<M: PersistedModel + 'static> QueryDsl for Query<M> {
     fn and_query(self, other: Query<Self::Model>) -> Self {
         Self {
             expression: QueryExpression::And(Box::new(self.expression), Box::new(other.expression)),
+            ordering: self.ordering,
+            limit: self.limit,
+            offset: self.offset,
             __seekwel_model: PhantomData,
         }
     }
@@ -56,12 +69,30 @@ impl<M: PersistedModel + 'static> QueryDsl for Query<M> {
     fn or_query(self, other: Query<Self::Model>) -> Self {
         Self {
             expression: QueryExpression::Or(Box::new(self.expression), Box::new(other.expression)),
+            ordering: self.ordering,
+            limit: self.limit,
+            offset: self.offset,
             __seekwel_model: PhantomData,
         }
     }
 
-    fn build_query(self, limit_one: bool) -> Result<(String, Vec<rusqlite::types::Value>), Error> {
-        super::build_query::<M>(self.expression, limit_one)
+    fn order_query(mut self, order: Order) -> Self {
+        self.ordering.extend(order.into_terms());
+        self
+    }
+
+    fn limit_query(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    fn offset_query(mut self, offset: usize) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    fn into_query_plan(self) -> Result<super::QueryPlan, Error> {
+        super::build_query_plan::<M>(self.expression, &self.ordering, self.limit, self.offset)
     }
 
     fn lazy(self) -> Self::Lazy {

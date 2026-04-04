@@ -66,6 +66,8 @@ let person = Person::first()?; // => Option<Person<Persisted>>
 let person = Person::q(PersonColumns::Name, Comparison::Eq("Pat")).first()?; // => Option<Person<Persisted>>
 let person = Person::q(PersonColumns::Name, Comparison::Ne("Pat")).first()?; // => Option<Person<Persisted>>
 let people = Person::q(PersonColumns::Age, Comparison::Gte(21)).all()?; // => Vec<Person<Persisted>>
+let count = Person::q(PersonColumns::Age, Comparison::Gte(21)).count()?; // => usize
+let exists = Person::q(PersonColumns::Name, Comparison::Eq("Pat")).exists()?; // => bool
 
 // q(...) returns a query builder. Use first(), all(), iter(), or try_iter() to execute it.
 let people = Person::q(PersonColumns::Age, Comparison::Gte(21))
@@ -80,6 +82,16 @@ let people = Person::q(PersonColumns::Age, Comparison::Gte(21))
 // You can also group OR clauses.
 let people = Person::q(PersonColumns::Age, Comparison::Gte(21))
     .and(Person::q(PersonColumns::Name, Comparison::Eq("Pat")).or(Person::q(PersonColumns::Name, Comparison::Eq("Sam"))))
+    .all()?;
+
+// Queries can be ordered and paginated.
+let people = Person::order(PersonColumns::Name).limit(10).offset(20).all()?;
+let people = Person::order(PersonColumns::Name.desc()).all()?;
+let people = Person::order([PersonColumns::Age.desc(), PersonColumns::Name.asc()]).all()?;
+let people = Person::order("name DESC").all()?;
+let people = Person::q(PersonColumns::Age, Comparison::Gte(21))
+    .order(PersonColumns::Name.desc())
+    .limit(5)
     .all()?;
 
 // You can also iterate over query results.

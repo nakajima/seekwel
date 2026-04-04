@@ -47,12 +47,11 @@ pub mod connection;
 pub mod error;
 /// Model traits, query types, and SQLite field conversions.
 pub mod model;
-/// Low-level SQL string generation helpers.
-pub mod sql;
+mod sql;
 
 pub use model::{
     Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, Lazy, LazyIter, LazyQuery,
-    LazyTryIter, ModelQueryDsl, NewRecord, Persisted, Query, QueryDsl, SqlField,
+    LazyTryIter, ModelQueryDsl, NewRecord, Order, Persisted, Query, QueryDsl, SqlField,
 };
 
 /// Derive macro that implements seekwel's model traits for a typestate model struct.
@@ -66,4 +65,6 @@ pub mod prelude {
     pub use crate::ModelQueryDsl;
     /// Query-value chaining methods like `.q(...)`, `.and(...)`, and `.all()`.
     pub use crate::QueryDsl;
+    /// Typed column helpers like `PersonColumns::Name.asc()` and `.desc()`.
+    pub use crate::model::Column;
 }

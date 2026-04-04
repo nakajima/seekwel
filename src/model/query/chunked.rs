@@ -1,13 +1,12 @@
 use std::marker::PhantomData;
 
 use rusqlite::params_from_iter;
-use rusqlite::types::Value;
 
 use crate::connection::Connection;
 use crate::error::Error;
 
 use super::super::PersistedModel;
-use super::{Lazy, Query, QueryDsl, assert_chunk_size};
+use super::{Lazy, Order, Query, QueryDsl, QueryPlan, assert_chunk_size};
 
 /// A query wrapper that fetches matching rows in chunks.
 #[derive(Debug, Clone)]
@@ -20,10 +19,9 @@ pub struct Chunked<Q> {
 /// [`QueryDsl::try_iter`] on chunked queries.
 #[derive(Debug)]
 pub struct ChunkedTryIter<M> {
-    query: String,
-    params: Vec<Value>,
+    plan: QueryPlan,
     chunk_size: usize,
-    offset: usize,
+    consumed: usize,
     done: bool,
     __seekwel_model: PhantomData<M>,
 }
@@ -35,6 +33,7 @@ pub struct ChunkedIter<M> {
     inner: ChunkedTryIter<M>,
 }
 
+#[allow(private_interfaces)]
 impl<Q> QueryDsl for Chunked<Q>
 where
     Q: QueryDsl,
@@ -61,8 +60,29 @@ where
         }
     }
 
-    fn build_query(self, limit_one: bool) -> Result<(String, Vec<Value>), Error> {
-        <Q as QueryDsl>::build_query(self.inner, limit_one)
+    fn order_query(self, order: Order) -> Self {
+        Self {
+            inner: <Q as QueryDsl>::order_query(self.inner, order),
+            chunk_size: self.chunk_size,
+        }
+    }
+
+    fn limit_query(self, limit: usize) -> Self {
+        Self {
+            inner: <Q as QueryDsl>::limit_query(self.inner, limit),
+            chunk_size: self.chunk_size,
+        }
+    }
+
+    fn offset_query(self, offset: usize) -> Self {
+        Self {
+            inner: <Q as QueryDsl>::offset_query(self.inner, offset),
+            chunk_size: self.chunk_size,
+        }
+    }
+
+    fn into_query_plan(self) -> Result<QueryPlan, Error> {
+        <Q as QueryDsl>::into_query_plan(self.inner)
     }
 
     fn lazy(self) -> Self::Lazy {
@@ -83,8 +103,7 @@ where
 
     fn try_iter(self) -> Result<Self::TryIter, Error> {
         let chunk_size = self.chunk_size;
-        let (query, params) = <Q as QueryDsl>::build_query(self.inner, false)?;
-        Ok(ChunkedTryIter::new(query, params, chunk_size))
+        Ok(ChunkedTryIter::new(self.into_query_plan()?, chunk_size))
     }
 }
 
@@ -105,12 +124,11 @@ impl<M> ChunkedTryIter<M>
 where
     M: PersistedModel,
 {
-    fn new(query: String, params: Vec<Value>, chunk_size: usize) -> Self {
+    fn new(plan: QueryPlan, chunk_size: usize) -> Self {
         Self {
-            query,
-            params,
+            plan,
             chunk_size,
-            offset: 0,
+            consumed: 0,
             done: false,
             __seekwel_model: PhantomData,
         }
@@ -128,10 +146,15 @@ where
             return None;
         }
 
-        let query = format!(
-            "{} LIMIT {} OFFSET {}",
-            self.query, self.chunk_size, self.offset
-        );
+        let remaining = self.plan.remaining_limit(self.consumed);
+        if matches!(remaining, Some(0)) {
+            self.done = true;
+            return None;
+        }
+
+        let chunk_limit =
+            remaining.map_or(self.chunk_size, |remaining| remaining.min(self.chunk_size));
+        let query = self.plan.paged_query(chunk_limit, self.consumed);
         let conn = match Connection::get() {
             Ok(conn) => conn,
             Err(error) => {
@@ -140,14 +163,19 @@ where
             }
         };
 
-        match conn.query_all(&query, params_from_iter(self.params.clone()), M::from_row) {
+        match conn.query_all(
+            &query,
+            params_from_iter(self.plan.params.clone()),
+            M::from_row,
+        ) {
             Ok(rows) if rows.is_empty() => {
                 self.done = true;
                 None
             }
             Ok(rows) => {
-                self.offset += rows.len();
-                self.done = rows.len() < self.chunk_size;
+                self.consumed += rows.len();
+                self.done = rows.len() < chunk_limit
+                    || matches!(self.plan.remaining_limit(self.consumed), Some(0));
                 Some(Ok(rows))
             }
             Err(error) => {

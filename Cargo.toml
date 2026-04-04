@@ -3,7 +3,7 @@ members = ["seekwel-macros"]
 
 [package]
 name = "seekwel"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 description = "an experimental sqlite library"
 license = "BSD-3-Clause"

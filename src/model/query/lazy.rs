@@ -1,13 +1,12 @@
 use std::marker::PhantomData;
 
 use rusqlite::params_from_iter;
-use rusqlite::types::Value;
 
 use crate::connection::Connection;
 use crate::error::Error;
 
 use super::super::PersistedModel;
-use super::{Chunked, Query, QueryDsl, assert_chunk_size};
+use super::{Chunked, Order, Query, QueryDsl, QueryPlan, assert_chunk_size};
 
 /// A query wrapper that fetches matching rows one at a time.
 #[derive(Debug, Clone)]
@@ -19,9 +18,8 @@ pub struct Lazy<Q> {
 /// on lazy queries.
 #[derive(Debug)]
 pub struct LazyTryIter<M> {
-    query: String,
-    params: Vec<Value>,
-    offset: usize,
+    plan: QueryPlan,
+    consumed: usize,
     done: bool,
     __seekwel_model: PhantomData<M>,
 }
@@ -33,6 +31,7 @@ pub struct LazyIter<M> {
     inner: LazyTryIter<M>,
 }
 
+#[allow(private_interfaces)]
 impl<Q> QueryDsl for Lazy<Q>
 where
     Q: QueryDsl,
@@ -57,8 +56,26 @@ where
         }
     }
 
-    fn build_query(self, limit_one: bool) -> Result<(String, Vec<Value>), Error> {
-        <Q as QueryDsl>::build_query(self.inner, limit_one)
+    fn order_query(self, order: Order) -> Self {
+        Self {
+            inner: <Q as QueryDsl>::order_query(self.inner, order),
+        }
+    }
+
+    fn limit_query(self, limit: usize) -> Self {
+        Self {
+            inner: <Q as QueryDsl>::limit_query(self.inner, limit),
+        }
+    }
+
+    fn offset_query(self, offset: usize) -> Self {
+        Self {
+            inner: <Q as QueryDsl>::offset_query(self.inner, offset),
+        }
+    }
+
+    fn into_query_plan(self) -> Result<QueryPlan, Error> {
+        <Q as QueryDsl>::into_query_plan(self.inner)
     }
 
     fn lazy(self) -> Self::Lazy {
@@ -80,8 +97,7 @@ where
     }
 
     fn try_iter(self) -> Result<Self::TryIter, Error> {
-        let (query, params) = <Self as QueryDsl>::build_query(self, false)?;
-        Ok(LazyTryIter::new(query, params))
+        Ok(LazyTryIter::new(self.into_query_plan()?))
     }
 }
 
@@ -102,11 +118,10 @@ impl<M> LazyTryIter<M>
 where
     M: PersistedModel,
 {
-    fn new(query: String, params: Vec<Value>) -> Self {
+    fn new(plan: QueryPlan) -> Self {
         Self {
-            query,
-            params,
-            offset: 0,
+            plan,
+            consumed: 0,
             done: false,
             __seekwel_model: PhantomData,
         }
@@ -124,7 +139,12 @@ where
             return None;
         }
 
-        let query = format!("{} LIMIT 1 OFFSET {}", self.query, self.offset);
+        if matches!(self.plan.remaining_limit(self.consumed), Some(0)) {
+            self.done = true;
+            return None;
+        }
+
+        let query = self.plan.paged_query(1, self.consumed);
         let conn = match Connection::get() {
             Ok(conn) => conn,
             Err(error) => {
@@ -133,9 +153,13 @@ where
             }
         };
 
-        match conn.query_optional(&query, params_from_iter(self.params.clone()), M::from_row) {
+        match conn.query_optional(
+            &query,
+            params_from_iter(self.plan.params.clone()),
+            M::from_row,
+        ) {
             Ok(Some(model)) => {
-                self.offset += 1;
+                self.consumed += 1;
                 Some(Ok(model))
             }
             Ok(None) => {

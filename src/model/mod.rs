@@ -19,7 +19,7 @@ mod sql_field;
 pub use comparison::{Comparison, ComparisonOperand};
 pub use query::{
     Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Lazy, LazyIter, LazyQuery, LazyTryIter,
-    ModelQueryDsl, Query, QueryDsl,
+    ModelQueryDsl, Order, Query, QueryDsl,
 };
 pub use sql_field::SqlField;
 #[doc(hidden)]
@@ -43,6 +43,22 @@ pub struct ColumnDef {
 pub trait Column: Copy + Clone {
     /// Returns the SQL column name for this typed column.
     fn as_str(self) -> &'static str;
+
+    /// Returns an ascending `ORDER BY` clause for this column.
+    fn asc(self) -> Order
+    where
+        Self: Sized,
+    {
+        Order::asc(self)
+    }
+
+    /// Returns a descending `ORDER BY` clause for this column.
+    fn desc(self) -> Order
+    where
+        Self: Sized,
+    {
+        Order::desc(self)
+    }
 }
 
 /// Typestate marker for an in-memory record that has not been saved yet.

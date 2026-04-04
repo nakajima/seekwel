@@ -233,6 +233,18 @@ pub fn derive_model(input: TokenStream) -> TokenStream {
             #(#column_variant_docs #column_variants,)*
         }
 
+        impl #columns_name {
+            #[doc = "Returns an ascending `ORDER BY` clause for this column."]
+            pub fn asc(self) -> seekwel::Order {
+                seekwel::Order::asc(self)
+            }
+
+            #[doc = "Returns a descending `ORDER BY` clause for this column."]
+            pub fn desc(self) -> seekwel::Order {
+                seekwel::Order::desc(self)
+            }
+        }
+
         impl seekwel::model::Column for #columns_name {
             fn as_str(self) -> &'static str {
                 match self {

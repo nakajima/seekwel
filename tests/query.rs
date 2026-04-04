@@ -163,6 +163,157 @@ fn boolean_query_composition_respects_grouping() -> Result<(), Error> {
 }
 
 #[test]
+fn count_and_exists_respect_filters_and_pagination() -> Result<(), Error> {
+    with_people(|people| {
+        assert_eq!(Person::count()?, 3);
+        assert!(Person::exists()?);
+
+        assert_eq!(
+            Person::q(PersonColumns::Age, Comparison::Gte(20)).count()?,
+            2
+        );
+        assert!(Person::q(PersonColumns::Name, Comparison::Eq("Pat")).exists()?);
+        assert!(!Person::q(PersonColumns::Name, Comparison::Eq("Taylor")).exists()?);
+
+        assert_eq!(Person::order(PersonColumns::Name).offset(1).count()?, 2);
+        assert_eq!(
+            Person::order(PersonColumns::Name)
+                .limit(1)
+                .offset(1)
+                .count()?,
+            1
+        );
+        assert!(Person::order(PersonColumns::Name).offset(2).exists()?);
+        assert!(!Person::order(PersonColumns::Name).offset(3).exists()?);
+        assert!(!Person::order(PersonColumns::Name).limit(0).exists()?);
+
+        assert_eq!(
+            Person::q(PersonColumns::Id, Comparison::Eq(people.sam.id)).count()?,
+            1
+        );
+
+        Ok(())
+    })
+}
+
+#[test]
+fn ordering_limit_and_offset_shape_results() -> Result<(), Error> {
+    with_people(|_| {
+        let ascending_names: Vec<_> = Person::order(PersonColumns::Name)
+            .all()?
+            .into_iter()
+            .map(|person| person.name)
+            .collect();
+        assert_eq!(ascending_names, vec!["Alex", "Pat", "Sam"]);
+
+        let descending_names: Vec<_> = Person::order(PersonColumns::Name.desc())
+            .all()?
+            .into_iter()
+            .map(|person| person.name)
+            .collect();
+        assert_eq!(descending_names, vec!["Sam", "Pat", "Alex"]);
+
+        let multi_column_names: Vec<_> =
+            Person::order([PersonColumns::Age.desc(), PersonColumns::Name.asc()])
+                .all()?
+                .into_iter()
+                .map(|person| person.name)
+                .collect();
+        assert_eq!(multi_column_names, vec!["Sam", "Pat", "Alex"]);
+
+        let raw_names: Vec<_> = Person::order("name DESC")
+            .all()?
+            .into_iter()
+            .map(|person| person.name)
+            .collect();
+        assert_eq!(raw_names, vec!["Sam", "Pat", "Alex"]);
+
+        let limited_names: Vec<_> = Person::order([PersonColumns::Name])
+            .limit(2)
+            .all()?
+            .into_iter()
+            .map(|person| person.name)
+            .collect();
+        assert_eq!(limited_names, vec!["Alex", "Pat"]);
+
+        let offset_names: Vec<_> = Person::order(PersonColumns::Name)
+            .offset(1)
+            .all()?
+            .into_iter()
+            .map(|person| person.name)
+            .collect();
+        assert_eq!(offset_names, vec!["Pat", "Sam"]);
+
+        let paged_names: Vec<_> = Person::order(PersonColumns::Name)
+            .limit(1)
+            .offset(1)
+            .all()?
+            .into_iter()
+            .map(|person| person.name)
+            .collect();
+        assert_eq!(paged_names, vec!["Pat"]);
+
+        let first_after_offset = Person::order(PersonColumns::Name).offset(1).first()?;
+        assert_eq!(
+            first_after_offset.map(|person| person.name),
+            Some("Pat".to_string())
+        );
+
+        assert!(
+            Person::order(PersonColumns::Name)
+                .limit(0)
+                .first()?
+                .is_none()
+        );
+
+        Ok(())
+    })
+}
+
+#[test]
+fn iteration_modes_respect_order_limit_and_offset() -> Result<(), Error> {
+    with_people(|_| {
+        let eager_names: Vec<_> = Person::order(PersonColumns::Name)
+            .offset(1)
+            .limit(2)
+            .iter()?
+            .map(|person| person.name)
+            .collect();
+        assert_eq!(eager_names, vec!["Pat", "Sam"]);
+
+        let lazy_names: Result<Vec<_>, _> = Person::order(PersonColumns::Name)
+            .offset(1)
+            .limit(2)
+            .lazy()
+            .try_iter()?
+            .map(|person| person.map(|person| person.name))
+            .collect();
+        assert_eq!(lazy_names?, vec!["Pat", "Sam"]);
+
+        let chunked_names: Result<Vec<_>, _> = Person::order(PersonColumns::Name)
+            .offset(1)
+            .limit(2)
+            .chunked(1)
+            .try_iter()?
+            .map(|people_chunk| {
+                people_chunk.map(|people_chunk| {
+                    people_chunk
+                        .into_iter()
+                        .map(|person| person.name)
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        assert_eq!(
+            chunked_names?.into_iter().flatten().collect::<Vec<_>>(),
+            vec!["Pat", "Sam"]
+        );
+
+        Ok(())
+    })
+}
+
+#[test]
 fn unfiltered_iteration_modes_return_all_records() -> Result<(), Error> {
     with_people(|people| {
         let model_iter_ids: Vec<_> = Person::iter()?.map(|person| person.id).collect();

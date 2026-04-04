@@ -3,9 +3,9 @@ use rusqlite::types::Value;
 
 use crate::connection::Connection;
 use crate::error::Error;
-use crate::sql;
+use crate::sql::{self, Count, OrderDirection, OrderTerm, Projection, Select};
 
-use super::{Comparison, ComparisonOperand, Model, PersistedModel};
+use super::{Column, Comparison, ComparisonOperand, Model, PersistedModel};
 
 mod chunked;
 mod eager;
@@ -16,6 +16,119 @@ pub use chunked::{Chunked, ChunkedIter, ChunkedTryIter};
 pub use eager::Query;
 pub use lazy::{Lazy, LazyIter, LazyTryIter};
 
+/// An `ORDER BY` clause builder.
+///
+/// It can be constructed from:
+/// - a typed column like `PersonColumns::Name` (defaults to ascending)
+/// - `PersonColumns::Name.asc()` or `PersonColumns::Name.desc()`
+/// - arrays like `[PersonColumns::Name, PersonColumns::Age]` or
+///   `[PersonColumns::Name.asc(), PersonColumns::Age.desc()]`
+/// - raw SQL fragments like `"name DESC"`
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Order {
+    terms: Vec<OrderTerm>,
+}
+
+impl Order {
+    /// Creates an ascending `ORDER BY` item for a typed column.
+    pub fn asc<C>(column: C) -> Self
+    where
+        C: Column,
+    {
+        Self {
+            terms: vec![OrderTerm::Column {
+                name: column.as_str(),
+                direction: OrderDirection::Asc,
+            }],
+        }
+    }
+
+    /// Creates a descending `ORDER BY` item for a typed column.
+    pub fn desc<C>(column: C) -> Self
+    where
+        C: Column,
+    {
+        Self {
+            terms: vec![OrderTerm::Column {
+                name: column.as_str(),
+                direction: OrderDirection::Desc,
+            }],
+        }
+    }
+
+    /// Creates a raw `ORDER BY` fragment.
+    ///
+    /// This is inserted into SQL as-is.
+    pub fn raw(sql: impl Into<String>) -> Self {
+        Self {
+            terms: vec![OrderTerm::Raw(sql.into())],
+        }
+    }
+
+    /// Appends another ordering onto this one.
+    pub fn then(mut self, other: impl Into<Order>) -> Self {
+        self.terms.extend(other.into().terms);
+        self
+    }
+
+    pub(super) fn into_terms(self) -> Vec<OrderTerm> {
+        self.terms
+    }
+}
+
+impl<C> From<C> for Order
+where
+    C: Column,
+{
+    fn from(column: C) -> Self {
+        Self::asc(column)
+    }
+}
+
+impl From<&str> for Order {
+    fn from(sql: &str) -> Self {
+        Self::raw(sql)
+    }
+}
+
+impl From<String> for Order {
+    fn from(sql: String) -> Self {
+        Self::raw(sql)
+    }
+}
+
+impl From<&String> for Order {
+    fn from(sql: &String) -> Self {
+        Self::raw(sql.clone())
+    }
+}
+
+impl<T, const N: usize> From<[T; N]> for Order
+where
+    T: Into<Order>,
+{
+    fn from(values: [T; N]) -> Self {
+        let mut order = Self::default();
+        for value in values {
+            order.terms.extend(value.into().terms);
+        }
+        order
+    }
+}
+
+impl<T> From<Vec<T>> for Order
+where
+    T: Into<Order>,
+{
+    fn from(values: Vec<T>) -> Self {
+        let mut order = Self::default();
+        for value in values {
+            order.terms.extend(value.into().terms);
+        }
+        order
+    }
+}
+
 /// A lazy query rooted at [`Query`].
 pub type LazyQuery<M> = Lazy<Query<M>>;
 /// A chunked query rooted at [`Query`].
@@ -23,10 +136,90 @@ pub type ChunkedQuery<M> = Chunked<Query<M>>;
 
 use expression::QueryExpression;
 
+#[derive(Debug, Clone)]
+pub(super) struct QueryPlan {
+    table_name: &'static str,
+    columns: &'static [super::ColumnDef],
+    clause: Option<String>,
+    order_clause: Option<String>,
+    pub(super) params: Vec<Value>,
+    limit: Option<usize>,
+    offset: usize,
+}
+
+impl QueryPlan {
+    fn select<'a>(
+        &'a self,
+        projection: Projection<'a>,
+        limit: Option<usize>,
+        offset: usize,
+    ) -> Select<'a> {
+        Select {
+            projection,
+            table_name: self.table_name,
+            clause: self.clause.as_deref(),
+            order_clause: self.order_clause.as_deref(),
+            limit,
+            offset: (offset > 0).then_some(offset),
+        }
+    }
+
+    pub(super) fn all_query(&self) -> String {
+        self.select(
+            Projection::ModelColumns(self.columns),
+            self.limit,
+            self.offset,
+        )
+        .to_sql()
+    }
+
+    pub(super) fn first_query(&self) -> String {
+        let limit = match self.limit {
+            Some(limit) => Some(limit.min(1)),
+            None => Some(1),
+        };
+
+        self.select(Projection::ModelColumns(self.columns), limit, self.offset)
+            .to_sql()
+    }
+
+    pub(super) fn count_query(&self) -> String {
+        Count {
+            select: self.select(Projection::One, self.limit, self.offset),
+        }
+        .to_sql()
+    }
+
+    pub(super) fn exists_query(&self) -> String {
+        let limit = match self.limit {
+            Some(limit) => Some(limit.min(1)),
+            None => Some(1),
+        };
+
+        self.select(Projection::One, limit, self.offset).to_sql()
+    }
+
+    pub(super) fn remaining_limit(&self, consumed: usize) -> Option<usize> {
+        self.limit.map(|limit| limit.saturating_sub(consumed))
+    }
+
+    pub(super) fn paged_query(&self, page_size: usize, consumed: usize) -> String {
+        let limit = match self.remaining_limit(consumed) {
+            Some(limit) => Some(limit.min(page_size)),
+            None => Some(page_size),
+        };
+        let offset = self.offset.saturating_add(consumed);
+
+        self.select(Projection::ModelColumns(self.columns), limit, offset)
+            .to_sql()
+    }
+}
+
 /// Shared query-builder methods for query values.
 ///
 /// Import this trait with `use seekwel::prelude::*;` to enable fluent methods
-/// like `.q(...)`, `.and(...)`, `.all()`, and `.lazy()`.
+/// like `.q(...)`, `.and(...)`, `.order(...)`, `.count()`, `.exists()`, and `.all()`.
+#[allow(private_interfaces)]
 pub trait QueryDsl: Sized {
     /// The persisted model type returned by this query.
     type Model: PersistedModel + 'static;
@@ -50,7 +243,16 @@ pub trait QueryDsl: Sized {
     fn or_query(self, other: Query<Self::Model>) -> Self;
 
     #[doc(hidden)]
-    fn build_query(self, limit_one: bool) -> Result<(String, Vec<Value>), Error>;
+    fn order_query(self, order: Order) -> Self;
+
+    #[doc(hidden)]
+    fn limit_query(self, limit: usize) -> Self;
+
+    #[doc(hidden)]
+    fn offset_query(self, offset: usize) -> Self;
+
+    #[doc(hidden)]
+    fn into_query_plan(self) -> Result<QueryPlan, Error>;
 
     /// Switches this query to lazy row-by-row fetching.
     fn lazy(self) -> Self::Lazy;
@@ -81,27 +283,81 @@ pub trait QueryDsl: Sized {
         self.or_query(other)
     }
 
+    /// Adds one or more `ORDER BY` items.
+    fn order<O>(self, order: O) -> Self
+    where
+        O: Into<Order>,
+    {
+        self.order_query(order.into())
+    }
+
+    /// Adds an ascending `ORDER BY` clause for the given column.
+    fn order_by(self, column: <Self::Model as Model>::Column) -> Self {
+        self.order(column)
+    }
+
+    /// Adds an ascending `ORDER BY` clause for the given column.
+    fn asc(self, column: <Self::Model as Model>::Column) -> Self {
+        self.order(Order::asc(column))
+    }
+
+    /// Adds a descending `ORDER BY` clause for the given column.
+    fn desc(self, column: <Self::Model as Model>::Column) -> Self {
+        self.order(Order::desc(column))
+    }
+
+    /// Limits the number of rows returned by this query.
+    fn limit(self, limit: usize) -> Self {
+        self.limit_query(limit)
+    }
+
+    /// Skips the first `offset` rows returned by this query.
+    fn offset(self, offset: usize) -> Self {
+        self.offset_query(offset)
+    }
+
     /// Executes the query and returns the first matching row, if any.
-    ///
-    /// Without explicit ordering support, "first" means SQLite's natural result
-    /// order for the generated query.
     fn first(self) -> Result<Option<Self::Model>, Error> {
         let conn = Connection::get()?;
-        let (query, params) = self.build_query(true)?;
+        let plan = self.into_query_plan()?;
+        let query = plan.first_query();
         conn.query_optional(
             &query,
-            params_from_iter(params),
+            params_from_iter(plan.params),
             <Self::Model as PersistedModel>::from_row,
         )
+    }
+
+    /// Counts how many rows this query would return.
+    fn count(self) -> Result<usize, Error> {
+        let conn = Connection::get()?;
+        let plan = self.into_query_plan()?;
+        let query = plan.count_query();
+        let count = conn.query_row(&query, params_from_iter(plan.params), |row| {
+            row.get::<_, i64>(0)
+        })?;
+        Ok(count as usize)
+    }
+
+    /// Returns whether this query would yield at least one row.
+    fn exists(self) -> Result<bool, Error> {
+        let conn = Connection::get()?;
+        let plan = self.into_query_plan()?;
+        let query = plan.exists_query();
+        let value = conn.query_optional(&query, params_from_iter(plan.params), |row| {
+            row.get::<_, i64>(0)
+        })?;
+        Ok(value.is_some())
     }
 
     /// Executes the query and collects all matching rows.
     fn all(self) -> Result<Vec<Self::Model>, Error> {
         let conn = Connection::get()?;
-        let (query, params) = self.build_query(false)?;
+        let plan = self.into_query_plan()?;
+        let query = plan.all_query();
         conn.query_all(
             &query,
-            params_from_iter(params),
+            params_from_iter(plan.params),
             <Self::Model as PersistedModel>::from_row,
         )
     }
@@ -110,7 +366,7 @@ pub trait QueryDsl: Sized {
 /// Model-level query entrypoints exposed as associated functions.
 ///
 /// Import this trait with `use seekwel::prelude::*;` to call methods like
-/// `Person::all()`, `Person::lazy()`, or `Person::q(...)`.
+/// `Person::all()`, `Person::count()`, `Person::exists()`, `Person::q(...)`, or `Person::order(...)`.
 pub trait ModelQueryDsl: PersistedModel + Sized + 'static {
     /// Starts an unfiltered query for the model.
     fn query() -> Query<Self> {
@@ -127,20 +383,60 @@ pub trait ModelQueryDsl: PersistedModel + Sized + 'static {
 
     /// Starts an unfiltered query and combines it with `other` using `AND`.
     fn and(other: Query<Self>) -> Query<Self> {
-        <Query<Self> as QueryDsl>::and(Self::query(), other)
+        other
     }
 
     /// Starts an unfiltered query and combines it with `other` using `OR`.
     fn or(other: Query<Self>) -> Query<Self> {
-        <Query<Self> as QueryDsl>::or(Self::query(), other)
+        other
+    }
+
+    /// Starts an unfiltered ordered query for the model.
+    fn order<O>(order: O) -> Query<Self>
+    where
+        O: Into<Order>,
+    {
+        <Query<Self> as QueryDsl>::order(Self::query(), order)
+    }
+
+    /// Starts an unfiltered ascending ordered query for the model.
+    fn order_by(column: Self::Column) -> Query<Self> {
+        <Query<Self> as QueryDsl>::order_by(Self::query(), column)
+    }
+
+    /// Starts an unfiltered ascending ordered query for the model.
+    fn asc(column: Self::Column) -> Query<Self> {
+        <Query<Self> as QueryDsl>::asc(Self::query(), column)
+    }
+
+    /// Starts an unfiltered descending ordered query for the model.
+    fn desc(column: Self::Column) -> Query<Self> {
+        <Query<Self> as QueryDsl>::desc(Self::query(), column)
+    }
+
+    /// Starts an unfiltered limited query for the model.
+    fn limit(limit: usize) -> Query<Self> {
+        <Query<Self> as QueryDsl>::limit(Self::query(), limit)
+    }
+
+    /// Starts an unfiltered offset query for the model.
+    fn offset(offset: usize) -> Query<Self> {
+        <Query<Self> as QueryDsl>::offset(Self::query(), offset)
     }
 
     /// Returns the first row for the model, if any.
-    ///
-    /// Without explicit ordering support, "first" means SQLite's natural result
-    /// order for the generated query.
     fn first() -> Result<Option<Self>, Error> {
         <Query<Self> as QueryDsl>::first(Self::query())
+    }
+
+    /// Counts how many rows the model query would return.
+    fn count() -> Result<usize, Error> {
+        <Query<Self> as QueryDsl>::count(Self::query())
+    }
+
+    /// Returns whether the model query would yield at least one row.
+    fn exists() -> Result<bool, Error> {
+        <Query<Self> as QueryDsl>::exists(Self::query())
     }
 
     /// Returns all rows for the model.
@@ -177,15 +473,23 @@ fn assert_chunk_size(chunk_size: usize) {
     assert!(chunk_size > 0, "chunk size must be greater than 0");
 }
 
-fn build_query<M: Model>(
+fn build_query_plan<M: Model>(
     expression: QueryExpression,
-    limit_one: bool,
-) -> Result<(String, Vec<Value>), Error> {
+    ordering: &[OrderTerm],
+    limit: Option<usize>,
+    offset: usize,
+) -> Result<QueryPlan, Error> {
     let mut params = Vec::new();
     let clause = expression.into_clause(&mut params)?;
+    let order_clause = sql::order_by_clause(ordering);
 
-    Ok((
-        sql::select(M::table_name(), M::columns(), clause.as_deref(), limit_one),
+    Ok(QueryPlan {
+        table_name: M::table_name(),
+        columns: M::columns(),
+        clause,
+        order_clause,
         params,
-    ))
+        limit,
+        offset,
+    })
 }
