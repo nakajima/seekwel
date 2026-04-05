@@ -1,0 +1,5 @@
+error: BelongsTo<Option<T>> is not supported; use Option<BelongsTo<T>> instead
+  --> tests/ui/belongs_to_option_target.rs:12:22
+   |
+12 |     owner: BelongsTo<Option<Person>>,
+   |                      ^^^^^^^^^^^^^^

@@ -419,12 +419,26 @@ fn filtered_iteration_modes_return_matching_records() -> Result<(), Error> {
 #[test]
 fn null_comparisons_are_supported_for_optional_columns() -> Result<(), Error> {
     with_people(|people| {
-        let null_age = Person::q(PersonColumns::Age, Comparison::Eq(None::<u8>)).first()?;
+        let null_age = Person::q(PersonColumns::Age, Comparison::IsNull).first()?;
         assert_eq!(null_age.map(|person| person.id), Some(people.alex.id));
 
-        let not_null_age = Person::q(PersonColumns::Age, Comparison::Ne(None::<u8>)).all()?;
+        let chained_null_age = Person::q(PersonColumns::Name, Comparison::Eq("Alex"))
+            .q(PersonColumns::Age, Comparison::IsNull)
+            .first()?;
+        assert_eq!(chained_null_age.map(|person| person.id), Some(people.alex.id));
+
+        let not_null_age = Person::q(PersonColumns::Age, Comparison::IsNotNull).all()?;
         assert_eq!(
             sorted_ids(not_null_age.into_iter().map(|person| person.id).collect()),
+            vec![people.pat.id, people.sam.id]
+        );
+
+        let null_age_compat = Person::q(PersonColumns::Age, Comparison::Eq(None::<u8>)).first()?;
+        assert_eq!(null_age_compat.map(|person| person.id), Some(people.alex.id));
+
+        let not_null_age_compat = Person::q(PersonColumns::Age, Comparison::Ne(None::<u8>)).all()?;
+        assert_eq!(
+            sorted_ids(not_null_age_compat.into_iter().map(|person| person.id).collect()),
             vec![people.pat.id, people.sam.id]
         );
 

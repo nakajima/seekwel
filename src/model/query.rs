@@ -5,7 +5,7 @@ use crate::connection::Connection;
 use crate::error::Error;
 use crate::sql::{self, Count, OrderDirection, OrderTerm, Projection, Select};
 
-use super::{Column, Comparison, ComparisonOperand, Model, PersistedModel};
+use super::{Column, Comparison, Model, PersistedModel};
 
 mod chunked;
 mod eager;
@@ -266,10 +266,7 @@ pub trait QueryDsl: Sized {
     fn try_iter(self) -> Result<Self::TryIter, Error>;
 
     /// Adds an `AND` predicate to the current query.
-    fn q<T>(self, column: <Self::Model as Model>::Column, comparison: Comparison<T>) -> Self
-    where
-        T: ComparisonOperand,
-    {
+    fn q(self, column: <Self::Model as Model>::Column, comparison: Comparison) -> Self {
         self.and(Query::new(column, comparison))
     }
 
@@ -374,10 +371,7 @@ pub trait ModelQueryDsl: PersistedModel + Sized + 'static {
     }
 
     /// Starts a query with a single predicate.
-    fn q<T>(column: Self::Column, comparison: Comparison<T>) -> Query<Self>
-    where
-        T: ComparisonOperand,
-    {
+    fn q(column: Self::Column, comparison: Comparison) -> Query<Self> {
         Query::new(column, comparison)
     }
 

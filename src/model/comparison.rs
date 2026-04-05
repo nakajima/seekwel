@@ -4,24 +4,15 @@ use crate::error::Error;
 
 use super::SqlField;
 
-/// A typed comparison used in query predicates.
+/// A comparison used in query predicates.
 ///
-/// `Eq(None::<T>)` becomes `IS NULL`, and `Ne(None::<T>)` becomes
-/// `IS NOT NULL`.
+/// `Comparison::Eq(None::<T>)` becomes `IS NULL`, and `Comparison::Ne(None::<T>)`
+/// becomes `IS NOT NULL` for backward compatibility. Prefer
+/// [`Comparison::IsNull`] and [`Comparison::IsNotNull`] for new code.
 #[derive(Debug, Clone)]
-pub enum Comparison<T> {
-    /// Equal to a value.
-    Eq(T),
-    /// Not equal to a value.
-    Ne(T),
-    /// Greater than a value.
-    Gt(T),
-    /// Greater than or equal to a value.
-    Gte(T),
-    /// Less than a value.
-    Lt(T),
-    /// Less than or equal to a value.
-    Lte(T),
+pub struct Comparison {
+    operator: ComparisonOperator,
+    value: Option<Value>,
 }
 
 /// A value that can appear on the right-hand side of a [`Comparison`].
@@ -40,45 +31,93 @@ enum ComparisonOperator {
     Gte,
     Lt,
     Lte,
+    IsNull,
+    IsNotNull,
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct PreparedComparison {
-    operator: ComparisonOperator,
-    value: Option<Value>,
-}
+pub(super) type PreparedComparison = Comparison;
 
-impl<T> Comparison<T>
-where
-    T: ComparisonOperand,
-{
-    pub(super) fn into_prepared(self) -> PreparedComparison {
-        match self {
-            Comparison::Eq(value) => PreparedComparison {
-                operator: ComparisonOperator::Eq,
-                value: value.into_sql_value(),
-            },
-            Comparison::Ne(value) => PreparedComparison {
-                operator: ComparisonOperator::Ne,
-                value: value.into_sql_value(),
-            },
-            Comparison::Gt(value) => PreparedComparison {
-                operator: ComparisonOperator::Gt,
-                value: value.into_sql_value(),
-            },
-            Comparison::Gte(value) => PreparedComparison {
-                operator: ComparisonOperator::Gte,
-                value: value.into_sql_value(),
-            },
-            Comparison::Lt(value) => PreparedComparison {
-                operator: ComparisonOperator::Lt,
-                value: value.into_sql_value(),
-            },
-            Comparison::Lte(value) => PreparedComparison {
-                operator: ComparisonOperator::Lte,
-                value: value.into_sql_value(),
-            },
+impl Comparison {
+    #[allow(non_snake_case)]
+    /// Creates an equality comparison.
+    pub fn Eq<T>(value: T) -> Self
+    where
+        T: ComparisonOperand,
+    {
+        Self::with_value(ComparisonOperator::Eq, value)
+    }
+
+    #[allow(non_snake_case)]
+    /// Creates an inequality comparison.
+    pub fn Ne<T>(value: T) -> Self
+    where
+        T: ComparisonOperand,
+    {
+        Self::with_value(ComparisonOperator::Ne, value)
+    }
+
+    #[allow(non_snake_case)]
+    /// Creates a greater-than comparison.
+    pub fn Gt<T>(value: T) -> Self
+    where
+        T: ComparisonOperand,
+    {
+        Self::with_value(ComparisonOperator::Gt, value)
+    }
+
+    #[allow(non_snake_case)]
+    /// Creates a greater-than-or-equal comparison.
+    pub fn Gte<T>(value: T) -> Self
+    where
+        T: ComparisonOperand,
+    {
+        Self::with_value(ComparisonOperator::Gte, value)
+    }
+
+    #[allow(non_snake_case)]
+    /// Creates a less-than comparison.
+    pub fn Lt<T>(value: T) -> Self
+    where
+        T: ComparisonOperand,
+    {
+        Self::with_value(ComparisonOperator::Lt, value)
+    }
+
+    #[allow(non_snake_case)]
+    /// Creates a less-than-or-equal comparison.
+    pub fn Lte<T>(value: T) -> Self
+    where
+        T: ComparisonOperand,
+    {
+        Self::with_value(ComparisonOperator::Lte, value)
+    }
+
+    #[allow(non_upper_case_globals)]
+    /// Tests whether a column is `NULL`.
+    pub const IsNull: Self = Self {
+        operator: ComparisonOperator::IsNull,
+        value: None,
+    };
+
+    #[allow(non_upper_case_globals)]
+    /// Tests whether a column is not `NULL`.
+    pub const IsNotNull: Self = Self {
+        operator: ComparisonOperator::IsNotNull,
+        value: None,
+    };
+
+    fn with_value<T>(operator: ComparisonOperator, value: T) -> Self
+    where
+        T: ComparisonOperand,
+    {
+        Self {
+            operator,
+            value: value.into_sql_value(),
         }
+    }
+
+    pub(super) fn into_prepared(self) -> PreparedComparison {
+        self
     }
 }
 
@@ -93,12 +132,16 @@ impl PreparedComparison {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} = {placeholder}"))
             }
-            (ComparisonOperator::Eq, None) => Ok(format!("{column} IS NULL")),
+            (ComparisonOperator::Eq, None)
+            | (ComparisonOperator::IsNull, None)
+            | (ComparisonOperator::IsNull, Some(_)) => Ok(format!("{column} IS NULL")),
             (ComparisonOperator::Ne, Some(value)) => {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} != {placeholder}"))
             }
-            (ComparisonOperator::Ne, None) => Ok(format!("{column} IS NOT NULL")),
+            (ComparisonOperator::Ne, None)
+            | (ComparisonOperator::IsNotNull, None)
+            | (ComparisonOperator::IsNotNull, Some(_)) => Ok(format!("{column} IS NOT NULL")),
             (ComparisonOperator::Gt, Some(value)) => {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} > {placeholder}"))
@@ -132,6 +175,8 @@ impl ComparisonOperator {
             ComparisonOperator::Gte => "Gte",
             ComparisonOperator::Lt => "Lt",
             ComparisonOperator::Lte => "Lte",
+            ComparisonOperator::IsNull => "IsNull",
+            ComparisonOperator::IsNotNull => "IsNotNull",
         }
     }
 }

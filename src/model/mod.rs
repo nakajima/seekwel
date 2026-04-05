@@ -14,6 +14,7 @@ use crate::sql;
 pub mod builder;
 mod comparison;
 mod query;
+mod relation;
 mod sql_field;
 
 pub use comparison::{Comparison, ComparisonOperand};
@@ -21,6 +22,7 @@ pub use query::{
     Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Lazy, LazyIter, LazyQuery, LazyTryIter,
     ModelQueryDsl, Order, Query, QueryDsl,
 };
+pub use relation::BelongsTo;
 pub use sql_field::SqlField;
 #[doc(hidden)]
 pub use sql_field::column;

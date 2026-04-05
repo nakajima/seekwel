@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::error::Error;
 
-use super::super::{Column, Comparison, ComparisonOperand, Model, PersistedModel};
+use super::super::{Column, Comparison, Model, PersistedModel};
 use super::{Chunked, Lazy, Order, OrderTerm, QueryDsl, QueryExpression, assert_chunk_size};
 
 /// An eager query value for a persisted model.
@@ -29,10 +29,7 @@ impl<M: Model> Query<M> {
     }
 
     /// Creates a query with a single predicate.
-    pub fn new<T>(column: M::Column, comparison: Comparison<T>) -> Self
-    where
-        T: ComparisonOperand,
-    {
+    pub fn new(column: M::Column, comparison: Comparison) -> Self {
         Self {
             expression: QueryExpression::Predicate {
                 column: column.as_str(),

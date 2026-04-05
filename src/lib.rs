@@ -50,8 +50,9 @@ pub mod model;
 mod sql;
 
 pub use model::{
-    Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, Lazy, LazyIter, LazyQuery,
-    LazyTryIter, ModelQueryDsl, NewRecord, Order, Persisted, Query, QueryDsl, SqlField,
+    BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, Lazy, LazyIter,
+    LazyQuery, LazyTryIter, ModelQueryDsl, NewRecord, Order, Persisted, Query, QueryDsl,
+    SqlField,
 };
 
 /// Derive macro that implements seekwel's model traits for a typestate model struct.
