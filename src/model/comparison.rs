@@ -12,7 +12,13 @@ use super::SqlField;
 #[derive(Debug, Clone)]
 pub struct Comparison {
     operator: ComparisonOperator,
-    value: Option<Value>,
+    value: ComparisonValue,
+}
+
+#[derive(Debug, Clone)]
+enum ComparisonValue {
+    Single(Option<Value>),
+    Many(Vec<Value>),
 }
 
 /// A value that can appear on the right-hand side of a [`Comparison`].
@@ -31,6 +37,7 @@ enum ComparisonOperator {
     Gte,
     Lt,
     Lte,
+    In,
     IsNull,
     IsNotNull,
 }
@@ -92,18 +99,36 @@ impl Comparison {
         Self::with_value(ComparisonOperator::Lte, value)
     }
 
+    #[allow(non_snake_case)]
+    /// Creates an `IN (...)` comparison.
+    pub fn In<I, T>(values: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: ComparisonOperand,
+    {
+        Self {
+            operator: ComparisonOperator::In,
+            value: ComparisonValue::Many(
+                values
+                    .into_iter()
+                    .filter_map(ComparisonOperand::into_sql_value)
+                    .collect(),
+            ),
+        }
+    }
+
     #[allow(non_upper_case_globals)]
     /// Tests whether a column is `NULL`.
     pub const IsNull: Self = Self {
         operator: ComparisonOperator::IsNull,
-        value: None,
+        value: ComparisonValue::Single(None),
     };
 
     #[allow(non_upper_case_globals)]
     /// Tests whether a column is not `NULL`.
     pub const IsNotNull: Self = Self {
         operator: ComparisonOperator::IsNotNull,
-        value: None,
+        value: ComparisonValue::Single(None),
     };
 
     fn with_value<T>(operator: ComparisonOperator, value: T) -> Self
@@ -112,7 +137,7 @@ impl Comparison {
     {
         Self {
             operator,
-            value: value.into_sql_value(),
+            value: ComparisonValue::Single(value.into_sql_value()),
         }
     }
 
@@ -128,38 +153,59 @@ impl PreparedComparison {
         params: &mut Vec<Value>,
     ) -> Result<String, Error> {
         match (self.operator, self.value) {
-            (ComparisonOperator::Eq, Some(value)) => {
+            (ComparisonOperator::Eq, ComparisonValue::Single(Some(value))) => {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} = {placeholder}"))
             }
-            (ComparisonOperator::Eq, None)
-            | (ComparisonOperator::IsNull, None)
-            | (ComparisonOperator::IsNull, Some(_)) => Ok(format!("{column} IS NULL")),
-            (ComparisonOperator::Ne, Some(value)) => {
+            (ComparisonOperator::Eq, ComparisonValue::Single(None))
+            | (ComparisonOperator::IsNull, ComparisonValue::Single(_)) => {
+                Ok(format!("{column} IS NULL"))
+            }
+            (ComparisonOperator::Ne, ComparisonValue::Single(Some(value))) => {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} != {placeholder}"))
             }
-            (ComparisonOperator::Ne, None)
-            | (ComparisonOperator::IsNotNull, None)
-            | (ComparisonOperator::IsNotNull, Some(_)) => Ok(format!("{column} IS NOT NULL")),
-            (ComparisonOperator::Gt, Some(value)) => {
+            (ComparisonOperator::Ne, ComparisonValue::Single(None))
+            | (ComparisonOperator::IsNotNull, ComparisonValue::Single(_)) => {
+                Ok(format!("{column} IS NOT NULL"))
+            }
+            (ComparisonOperator::Gt, ComparisonValue::Single(Some(value))) => {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} > {placeholder}"))
             }
-            (ComparisonOperator::Gte, Some(value)) => {
+            (ComparisonOperator::Gte, ComparisonValue::Single(Some(value))) => {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} >= {placeholder}"))
             }
-            (ComparisonOperator::Lt, Some(value)) => {
+            (ComparisonOperator::Lt, ComparisonValue::Single(Some(value))) => {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} < {placeholder}"))
             }
-            (ComparisonOperator::Lte, Some(value)) => {
+            (ComparisonOperator::Lte, ComparisonValue::Single(Some(value))) => {
                 let placeholder = push_placeholder(params, value);
                 Ok(format!("{column} <= {placeholder}"))
             }
-            (operator, None) => Err(Error::InvalidQuery(format!(
+            (ComparisonOperator::In, ComparisonValue::Many(values)) => {
+                if values.is_empty() {
+                    return Ok("0 = 1".to_string());
+                }
+                let placeholders = values
+                    .into_iter()
+                    .map(|value| push_placeholder(params, value))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Ok(format!("{column} IN ({placeholders})"))
+            }
+            (operator, ComparisonValue::Single(None)) => Err(Error::InvalidQuery(format!(
                 "{} comparisons do not support NULL",
+                operator.as_str()
+            ))),
+            (operator, ComparisonValue::Single(Some(_))) => Err(Error::InvalidQuery(format!(
+                "{} comparisons do not support this value shape",
+                operator.as_str()
+            ))),
+            (operator, ComparisonValue::Many(_)) => Err(Error::InvalidQuery(format!(
+                "{} comparisons do not support list values here",
                 operator.as_str()
             ))),
         }
@@ -175,6 +221,7 @@ impl ComparisonOperator {
             ComparisonOperator::Gte => "Gte",
             ComparisonOperator::Lt => "Lt",
             ComparisonOperator::Lte => "Lte",
+            ComparisonOperator::In => "In",
             ComparisonOperator::IsNull => "IsNull",
             ComparisonOperator::IsNotNull => "IsNotNull",
         }
@@ -199,5 +246,26 @@ where
 impl ComparisonOperand for &str {
     fn into_sql_value(self) -> Option<Value> {
         Some(Value::Text(self.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn in_clause_with_all_none_operands_matches_no_rows() {
+        let values: Vec<Option<i64>> = vec![None, None];
+        let mut params = Vec::new();
+        let clause = Comparison::In(values)
+            .into_prepared()
+            .into_clause("col", &mut params)
+            .expect("IN with all-None operands should render a clause");
+
+        assert_eq!(clause, "0 = 1");
+        assert!(
+            params.is_empty(),
+            "no placeholders should be bound when every operand was filtered out",
+        );
     }
 }

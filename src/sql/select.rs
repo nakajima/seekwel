@@ -1,4 +1,4 @@
-use crate::model::ColumnDef;
+use crate::model::{ColumnDef, PrimaryKeyDef};
 
 use super::render::select_columns;
 
@@ -51,7 +51,10 @@ pub(crate) fn order_by_clause(ordering: &[OrderTerm]) -> Option<String> {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Projection<'a> {
-    ModelColumns(&'a [ColumnDef]),
+    ModelColumns {
+        primary_key_name: &'a str,
+        columns: &'a [ColumnDef],
+    },
     CountAll,
     One,
 }
@@ -59,7 +62,10 @@ pub(crate) enum Projection<'a> {
 impl Projection<'_> {
     fn to_sql(self) -> String {
         match self {
-            Self::ModelColumns(columns) => select_columns(columns),
+            Self::ModelColumns {
+                primary_key_name,
+                columns,
+            } => select_columns(primary_key_name, columns),
             Self::CountAll => "COUNT(*)".to_string(),
             Self::One => "1".to_string(),
         }
@@ -123,11 +129,19 @@ impl Count<'_> {
 }
 
 /// Builds a `SELECT ... WHERE id = ?1` statement for a model table.
-pub(crate) fn select_by_id(table_name: &str, columns: &[ColumnDef]) -> String {
+pub(crate) fn select_by_primary_key(
+    table_name: &str,
+    primary_key: PrimaryKeyDef,
+    columns: &[ColumnDef],
+) -> String {
+    let clause = format!("{} = ?1", primary_key.name);
     Select {
-        projection: Projection::ModelColumns(columns),
+        projection: Projection::ModelColumns {
+            primary_key_name: primary_key.name,
+            columns,
+        },
         table_name,
-        clause: Some("id = ?1"),
+        clause: Some(&clause),
         order_clause: None,
         limit: None,
         offset: None,
@@ -140,6 +154,7 @@ pub(crate) fn select_by_id(table_name: &str, columns: &[ColumnDef]) -> String {
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn select_with_options(
     table_name: &str,
+    primary_key_name: &str,
     columns: &[ColumnDef],
     clause: Option<&str>,
     order_clause: Option<&str>,
@@ -147,7 +162,10 @@ pub(crate) fn select_with_options(
     offset: Option<usize>,
 ) -> String {
     Select {
-        projection: Projection::ModelColumns(columns),
+        projection: Projection::ModelColumns {
+            primary_key_name,
+            columns,
+        },
         table_name,
         clause,
         order_clause,
@@ -162,12 +180,14 @@ pub(crate) fn select_with_options(
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn select(
     table_name: &str,
+    primary_key_name: &str,
     columns: &[ColumnDef],
     clause: Option<&str>,
     limit_one: bool,
 ) -> String {
     select_with_options(
         table_name,
+        primary_key_name,
         columns,
         clause,
         None,
@@ -180,11 +200,12 @@ pub(crate) fn select(
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn select_where(
     table_name: &str,
+    primary_key_name: &str,
     columns: &[ColumnDef],
     clause: &str,
     limit_one: bool,
 ) -> String {
-    select(table_name, columns, Some(clause), limit_one)
+    select(table_name, primary_key_name, columns, Some(clause), limit_one)
 }
 
 /// Appends `LIMIT` and `OFFSET` clauses to an existing `SELECT` statement.
@@ -232,9 +253,17 @@ mod tests {
     }
 
     #[test]
-    fn select_by_id_renders_lookup() {
+    fn select_by_primary_key_renders_lookup() {
         assert_eq!(
-            select_by_id("person", test_columns()),
+            select_by_primary_key(
+                "person",
+                PrimaryKeyDef {
+                    name: "id",
+                    sql_type: "INTEGER",
+                    auto_increment: true,
+                },
+                test_columns(),
+            ),
             "SELECT id, name, age FROM person WHERE id = ?1"
         );
     }
@@ -242,7 +271,7 @@ mod tests {
     #[test]
     fn select_where_renders_required_clause() {
         assert_eq!(
-            select_where("person", test_columns(), "age >= ?1", false),
+            select_where("person", "id", test_columns(), "age >= ?1", false),
             "SELECT id, name, age FROM person WHERE age >= ?1"
         );
     }
@@ -250,7 +279,7 @@ mod tests {
     #[test]
     fn select_renders_unfiltered_queries() {
         assert_eq!(
-            select("person", test_columns(), None, false),
+            select("person", "id", test_columns(), None, false),
             "SELECT id, name, age FROM person"
         );
     }
@@ -258,7 +287,7 @@ mod tests {
     #[test]
     fn select_where_applies_limit_one() {
         assert_eq!(
-            select_where("person", test_columns(), "name = ?1", true),
+            select_where("person", "id", test_columns(), "name = ?1", true),
             "SELECT id, name, age FROM person WHERE name = ?1 LIMIT 1"
         );
     }
@@ -266,7 +295,7 @@ mod tests {
     #[test]
     fn select_applies_limit_one() {
         assert_eq!(
-            select("person", test_columns(), None, true),
+            select("person", "id", test_columns(), None, true),
             "SELECT id, name, age FROM person LIMIT 1"
         );
     }
@@ -276,6 +305,7 @@ mod tests {
         assert_eq!(
             select_with_options(
                 "person",
+                "id",
                 test_columns(),
                 Some("age >= ?1"),
                 Some("name ASC, age DESC"),

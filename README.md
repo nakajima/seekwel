@@ -176,15 +176,14 @@ let people = Person::q(PersonColumns::Age, Comparison::Gte(21)).lazy().all()?;
 
 Custom field types can implement `seekwel::SqlField` to control how they are stored, loaded, and queried.
 
-## belongs_to relations
+## associations
 
-First-pass `belongs_to` relations are supported with `BelongsTo<T>` and `Option<BelongsTo<T>>`.
+### belongs_to
 
 ```rs
 use seekwel::{BelongsTo, connection::Connection, prelude::*};
 
 #[seekwel::model]
-#[derive(Clone)]
 struct Person {
     id: u64,
     name: String,
@@ -194,11 +193,10 @@ struct Person {
 struct Pet {
     id: u64,
     name: String,
-    owner: BelongsTo<Person>,
-    sitter: Option<BelongsTo<Person>>,
+    owner: BelongsTo<Person>, // Non-null owner_id
+    sitter: Option<BelongsTo<Person>>, // Nullable sitter_id
 }
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 Connection::memory()?;
 Person::create_table()?;
 Pet::create_table()?;
@@ -206,17 +204,44 @@ Pet::create_table()?;
 let pat = Person::builder().name("Pat").create()?;
 let pet = Pet::builder().name("Fido").owner(pat.clone()).create()?;
 
-// Load the parent record. Results are cached on the relation field.
+// Load the parent record. Results are cached on the association field.
 let owner = pet.owner()?;
 assert_eq!(owner.name, "Pat");
 
-// Relation fields are stored as `<field>_id` columns for querying.
+// Association fields are stored as `<field>_id` columns for querying.
 let pets = Pet::q(PetColumns::OwnerId, seekwel::Comparison::Eq(pat.id)).all()?;
 assert_eq!(pets.len(), 1);
-# Ok(())
-# }
 ```
 
-Relation loaders clone from the cached parent value in this first pass, so target models should implement `Clone` (with `#[derive(Clone)]` placed below `#[seekwel::model]`).
+> [!WARNING]  
+> `BelongsTo<Option<T>>` is not supported; use `Option<BelongsTo<T>>` instead.
 
-`BelongsTo<Option<T>>` is not supported; use `Option<BelongsTo<T>>` instead.
+### has_many
+
+Basically the same as above, except we add a `HasMany<Pet>` field.
+
+> [!NOTE]
+> `HasMany` uses a const-generic association key, so the field type is written as `HasMany<Pet, { PetColumns::OWNER_ID }>`.
+
+```rs
+use seekwel::{HasMany, connection::Connection, prelude::*};
+
+#[seekwel::model]
+struct Person {
+    id: u64,
+    name: FTS<String>,
+    pets: HasMany<Pet, { PetColumns::OWNER_ID }> // Validates that Pet has an `owner: BelongsTo<Person>` field
+}
+Connection::memory()?;
+Person::create_table()?;
+Pet::create_table()?;
+
+let owner = Person::builder().name("Pat").create()?;
+owner.pets.append(Pet::builder().name("Fido"))?;
+assert_eq!(owner.pets()?.len(), 1);
+assert_eq!(owner.pets()?[0].owner, owner);
+
+// Association fields are stored as `<field>_id` columns for querying.
+let pets = Pet::q(PetColumns::OwnerId, seekwel::Comparison::Eq(owner.id)).all()?;
+assert_eq!(pets.len(), 1);
+```

@@ -3,7 +3,7 @@ members = ["seekwel-macros"]
 
 [package]
 name = "seekwel"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 description = "an experimental sqlite library"
 license = "BSD-3-Clause"
@@ -14,3 +14,5 @@ seekwel-macros = { version = "0.1.4", path = "seekwel-macros" }
 
 [dev-dependencies]
 trybuild = "1.0"
+crossterm = "0.28"
+ratatui = "0.29"

@@ -38,8 +38,8 @@ pub(crate) fn assignments(columns: &[ColumnDef], start_at: usize) -> String {
         .join(", ")
 }
 
-pub(crate) fn select_columns(columns: &[ColumnDef]) -> String {
-    let mut cols = vec!["id"];
+pub(crate) fn select_columns(primary_key_name: &str, columns: &[ColumnDef]) -> String {
+    let mut cols = vec![primary_key_name];
     cols.extend(columns.iter().map(|column| column.name));
     cols.join(", ")
 }

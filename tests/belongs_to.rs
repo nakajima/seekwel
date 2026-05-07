@@ -20,10 +20,10 @@ struct Pet {
     sitter: Option<BelongsTo<Person>>,
 }
 
-static RELATION_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static ASSOCIATION_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-fn with_relations(test: impl FnOnce() -> Result<(), Error>) -> Result<(), Error> {
-    let _guard = RELATION_TEST_LOCK
+fn with_associations(test: impl FnOnce() -> Result<(), Error>) -> Result<(), Error> {
+    let _guard = ASSOCIATION_TEST_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap();
@@ -43,7 +43,7 @@ fn with_relations(test: impl FnOnce() -> Result<(), Error>) -> Result<(), Error>
 
 #[test]
 fn belongs_to_round_trips_loads_and_queries_by_raw_fk() -> Result<(), Error> {
-    with_relations(|| {
+    with_associations(|| {
         let pat = Person::builder().name("Pat").create()?;
         let sam = Person::builder().name("Sam").create()?;
 
@@ -90,7 +90,7 @@ fn belongs_to_round_trips_loads_and_queries_by_raw_fk() -> Result<(), Error> {
 
 #[test]
 fn belongs_to_caches_loaded_parent_until_reload() -> Result<(), Error> {
-    with_relations(|| {
+    with_associations(|| {
         let pat = Person::builder().name("Pat").create()?;
         let mut pet = Pet::builder().name("Cached").owner(pat.id).create()?;
 
@@ -112,7 +112,7 @@ fn belongs_to_caches_loaded_parent_until_reload() -> Result<(), Error> {
 
 #[test]
 fn reassigning_belongs_to_seeds_or_clears_the_cache() -> Result<(), Error> {
-    with_relations(|| {
+    with_associations(|| {
         let pat = Person::builder().name("Pat").create()?;
         let sam = Person::builder().name("Sam").create()?;
         let mut pet = Pet::builder().name("Switcher").owner(pat.id).create()?;

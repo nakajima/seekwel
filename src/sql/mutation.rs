@@ -1,4 +1,4 @@
-use crate::model::ColumnDef;
+use crate::model::{ColumnDef, PrimaryKeyDef};
 
 use super::render::{assignments, column_names, placeholders};
 
@@ -24,35 +24,47 @@ impl Insert<'_> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct UpdateById<'a> {
+pub(crate) struct UpdateByPrimaryKey<'a> {
     pub(crate) table_name: &'a str,
+    pub(crate) primary_key: PrimaryKeyDef,
     pub(crate) columns: &'a [ColumnDef],
 }
 
-impl UpdateById<'_> {
+impl UpdateByPrimaryKey<'_> {
     pub(crate) fn to_sql(self) -> String {
         if self.columns.is_empty() {
-            return format!("UPDATE {} SET id = id WHERE id = ?1", self.table_name);
+            return format!(
+                "UPDATE {} SET {} = {} WHERE {} = ?1",
+                self.table_name,
+                self.primary_key.name,
+                self.primary_key.name,
+                self.primary_key.name,
+            );
         }
 
         let id_placeholder = self.columns.len() + 1;
         format!(
-            "UPDATE {} SET {} WHERE id = ?{}",
+            "UPDATE {} SET {} WHERE {} = ?{}",
             self.table_name,
             assignments(self.columns, 1),
+            self.primary_key.name,
             id_placeholder
         )
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct DeleteById<'a> {
+pub(crate) struct DeleteByPrimaryKey<'a> {
     pub(crate) table_name: &'a str,
+    pub(crate) primary_key: PrimaryKeyDef,
 }
 
-impl DeleteById<'_> {
+impl DeleteByPrimaryKey<'_> {
     pub(crate) fn to_sql(self) -> String {
-        format!("DELETE FROM {} WHERE id = ?1", self.table_name)
+        format!(
+            "DELETE FROM {} WHERE {} = ?1",
+            self.table_name, self.primary_key.name
+        )
     }
 }
 
@@ -66,17 +78,26 @@ pub fn insert(table_name: &str, columns: &[ColumnDef]) -> String {
 }
 
 /// Builds an `UPDATE ... WHERE id = ?n` statement for a model table.
-pub fn update_by_id(table_name: &str, columns: &[ColumnDef]) -> String {
-    UpdateById {
+pub fn update_by_primary_key(
+    table_name: &str,
+    primary_key: PrimaryKeyDef,
+    columns: &[ColumnDef],
+) -> String {
+    UpdateByPrimaryKey {
         table_name,
+        primary_key,
         columns,
     }
     .to_sql()
 }
 
-/// Builds a `DELETE ... WHERE id = ?1` statement for a model table.
-pub fn delete_by_id(table_name: &str) -> String {
-    DeleteById { table_name }.to_sql()
+/// Builds a `DELETE ... WHERE <pk> = ?1` statement for a model table.
+pub fn delete_by_primary_key(table_name: &str, primary_key: PrimaryKeyDef) -> String {
+    DeleteByPrimaryKey {
+        table_name,
+        primary_key,
+    }
+    .to_sql()
 }
 
 #[cfg(test)]
@@ -111,24 +132,35 @@ mod tests {
         assert_eq!(insert("person", &[]), "INSERT INTO person DEFAULT VALUES");
     }
 
+    fn primary_key(name: &'static str) -> PrimaryKeyDef {
+        PrimaryKeyDef {
+            name,
+            sql_type: "INTEGER",
+            auto_increment: true,
+        }
+    }
+
     #[test]
-    fn update_by_id_renders_assignments() {
+    fn update_by_primary_key_renders_assignments() {
         assert_eq!(
-            update_by_id("person", test_columns()),
+            update_by_primary_key("person", primary_key("id"), test_columns()),
             "UPDATE person SET name = ?1, age = ?2 WHERE id = ?3"
         );
     }
 
     #[test]
-    fn update_by_id_handles_empty_models() {
+    fn update_by_primary_key_handles_empty_models() {
         assert_eq!(
-            update_by_id("empty", &[]),
-            "UPDATE empty SET id = id WHERE id = ?1"
+            update_by_primary_key("empty", primary_key("hyperlink_id"), &[]),
+            "UPDATE empty SET hyperlink_id = hyperlink_id WHERE hyperlink_id = ?1"
         );
     }
 
     #[test]
-    fn delete_by_id_renders_statement() {
-        assert_eq!(delete_by_id("person"), "DELETE FROM person WHERE id = ?1");
+    fn delete_by_primary_key_renders_statement() {
+        assert_eq!(
+            delete_by_primary_key("person", primary_key("id")),
+            "DELETE FROM person WHERE id = ?1"
+        );
     }
 }

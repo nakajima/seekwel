@@ -1,7 +1,7 @@
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
 
-use crate::connection::Connection;
+use crate::connection::{Connection, record_query_with_params};
 use crate::error::Error;
 use crate::sql::{self, Count, OrderDirection, OrderTerm, Projection, Select};
 
@@ -139,6 +139,7 @@ use expression::QueryExpression;
 #[derive(Debug, Clone)]
 pub(super) struct QueryPlan {
     table_name: &'static str,
+    primary_key_name: &'static str,
     columns: &'static [super::ColumnDef],
     clause: Option<String>,
     order_clause: Option<String>,
@@ -166,7 +167,10 @@ impl QueryPlan {
 
     pub(super) fn all_query(&self) -> String {
         self.select(
-            Projection::ModelColumns(self.columns),
+            Projection::ModelColumns {
+                primary_key_name: self.primary_key_name,
+                columns: self.columns,
+            },
             self.limit,
             self.offset,
         )
@@ -179,7 +183,14 @@ impl QueryPlan {
             None => Some(1),
         };
 
-        self.select(Projection::ModelColumns(self.columns), limit, self.offset)
+        self.select(
+            Projection::ModelColumns {
+                primary_key_name: self.primary_key_name,
+                columns: self.columns,
+            },
+            limit,
+            self.offset,
+        )
             .to_sql()
     }
 
@@ -210,7 +221,14 @@ impl QueryPlan {
         };
         let offset = self.offset.saturating_add(consumed);
 
-        self.select(Projection::ModelColumns(self.columns), limit, offset)
+        self.select(
+            Projection::ModelColumns {
+                primary_key_name: self.primary_key_name,
+                columns: self.columns,
+            },
+            limit,
+            offset,
+        )
             .to_sql()
     }
 }
@@ -318,6 +336,7 @@ pub trait QueryDsl: Sized {
         let conn = Connection::get()?;
         let plan = self.into_query_plan()?;
         let query = plan.first_query();
+        record_query_with_params(&query, &plan.params);
         conn.query_optional(
             &query,
             params_from_iter(plan.params),
@@ -330,6 +349,7 @@ pub trait QueryDsl: Sized {
         let conn = Connection::get()?;
         let plan = self.into_query_plan()?;
         let query = plan.count_query();
+        record_query_with_params(&query, &plan.params);
         let count = conn.query_row(&query, params_from_iter(plan.params), |row| {
             row.get::<_, i64>(0)
         })?;
@@ -341,6 +361,7 @@ pub trait QueryDsl: Sized {
         let conn = Connection::get()?;
         let plan = self.into_query_plan()?;
         let query = plan.exists_query();
+        record_query_with_params(&query, &plan.params);
         let value = conn.query_optional(&query, params_from_iter(plan.params), |row| {
             row.get::<_, i64>(0)
         })?;
@@ -352,6 +373,7 @@ pub trait QueryDsl: Sized {
         let conn = Connection::get()?;
         let plan = self.into_query_plan()?;
         let query = plan.all_query();
+        record_query_with_params(&query, &plan.params);
         conn.query_all(
             &query,
             params_from_iter(plan.params),
@@ -479,6 +501,7 @@ fn build_query_plan<M: Model>(
 
     Ok(QueryPlan {
         table_name: M::table_name(),
+        primary_key_name: M::primary_key().name,
         columns: M::columns(),
         clause,
         order_clause,

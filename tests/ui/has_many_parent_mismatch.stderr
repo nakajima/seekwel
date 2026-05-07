@@ -1,0 +1,15 @@
+error[E0271]: type mismatch resolving `<Pet as HasManyAssociation<0>>::Parent == Shelter`
+  --> tests/ui/has_many_parent_mismatch.rs:9:1
+   |
+ 9 | #[seekwel::model]
+   | ^^^^^^^^^^^^^^^^^ type mismatch resolving `<Pet as HasManyAssociation<0>>::Parent == Shelter`
+   |
+note: expected this to be `Shelter`
+  --> tests/ui/has_many_parent_mismatch.rs:18:22
+   |
+18 |     owner: BelongsTo<Person>,
+   |                      ^^^^^^
+   = note: expected struct `Shelter`
+              found struct `Person`
+   = help: see issue #48214
+   = note: this error originates in the derive macro `seekwel::Model` (in Nightly builds, run with -Z macro-backtrace for more info)

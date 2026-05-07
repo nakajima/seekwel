@@ -5,8 +5,7 @@ use std::marker::PhantomData;
 use rusqlite::types::Value;
 
 use crate::error::Error;
-
-use super::{PersistedModel, SqlField};
+use crate::model::{PersistedModel, SqlField};
 
 /// A typed foreign-key reference to another persisted model.
 ///
@@ -50,7 +49,7 @@ pub struct BelongsTo<T> {
 }
 
 impl<T> BelongsTo<T> {
-    /// Creates a relation wrapper from a persisted primary key.
+    /// Creates an association wrapper from a persisted primary key.
     pub fn new(id: u64) -> Self {
         Self {
             id,
@@ -64,7 +63,7 @@ impl<T> BelongsTo<T> {
         self.id
     }
 
-    /// Clears any cached parent model for this relation.
+    /// Clears any cached parent model for this association.
     pub fn clear_cache(&self) {
         self.cached.borrow_mut().take();
     }
@@ -115,6 +114,15 @@ impl<T> PartialEq for BelongsTo<T> {
     }
 }
 
+impl<M> PartialEq<M> for BelongsTo<M>
+where
+    M: PersistedModel,
+{
+    fn eq(&self, other: &M) -> bool {
+        self.id == other.id()
+    }
+}
+
 impl<T> Eq for BelongsTo<T> {}
 
 impl<T> From<u64> for BelongsTo<T> {
@@ -122,6 +130,33 @@ impl<T> From<u64> for BelongsTo<T> {
         Self::new(id)
     }
 }
+
+macro_rules! impl_belongs_to_from_unsigned {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl<T> From<$ty> for BelongsTo<T> {
+                fn from(id: $ty) -> Self {
+                    Self::new(id as u64)
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_belongs_to_from_signed {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl<T> From<$ty> for BelongsTo<T> {
+                fn from(id: $ty) -> Self {
+                    Self::new(u64::try_from(id).expect("BelongsTo ids must be non-negative"))
+                }
+            }
+        )*
+    };
+}
+
+impl_belongs_to_from_unsigned!(u32, u16, u8);
+impl_belongs_to_from_signed!(i64, i32, i16, i8);
 
 impl<M> From<M> for BelongsTo<M>
 where
@@ -149,6 +184,39 @@ impl<T> SqlField for BelongsTo<T> {
     }
 
     fn from_sql_row(row: &rusqlite::Row, index: usize) -> rusqlite::Result<Self> {
-        Ok(Self::new(row.get::<_, i64>(index)? as u64))
+        let value = row.get::<_, i64>(index)?;
+        let id = u64::try_from(value).map_err(|_| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                rusqlite::types::Type::Integer,
+                Box::new(std::io::Error::other("BelongsTo ids must be non-negative")),
+            )
+        })?;
+        Ok(Self::new(id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Target;
+
+    #[test]
+    fn from_u32_round_trips_through_u64() {
+        let association: BelongsTo<Target> = 42_u32.into();
+        assert_eq!(association.id(), 42);
+    }
+
+    #[test]
+    fn from_i64_round_trips_for_non_negative_values() {
+        let association: BelongsTo<Target> = 42_i64.into();
+        assert_eq!(association.id(), 42);
+    }
+
+    #[test]
+    #[should_panic(expected = "BelongsTo ids must be non-negative")]
+    fn from_i64_panics_on_negative_values() {
+        let _: BelongsTo<Target> = (-1_i64).into();
     }
 }

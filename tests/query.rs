@@ -99,6 +99,16 @@ fn comparison_operators_filter_records() -> Result<(), Error> {
         assert_eq!(older.len(), 1);
         assert_eq!(older[0].id, people.sam.id);
 
+        let in_list = Person::q(PersonColumns::Name, Comparison::In(["Pat", "Sam"])).all()?;
+        assert_eq!(
+            sorted_ids(in_list.into_iter().map(|person| person.id).collect()),
+            vec![people.pat.id, people.sam.id,]
+        );
+
+        let empty_in_list =
+            Person::q(PersonColumns::Name, Comparison::In(Vec::<&str>::new())).all()?;
+        assert!(empty_in_list.is_empty());
+
         let adults = Person::q(PersonColumns::Age, Comparison::Gte(20)).all()?;
         assert_eq!(
             sorted_ids(adults.into_iter().map(|person| person.id).collect()),

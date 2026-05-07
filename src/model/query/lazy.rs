@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use rusqlite::params_from_iter;
 
-use crate::connection::Connection;
+use crate::connection::{Connection, record_query_with_params};
 use crate::error::Error;
 
 use super::super::PersistedModel;
@@ -153,11 +153,9 @@ where
             }
         };
 
-        match conn.query_optional(
-            &query,
-            params_from_iter(self.plan.params.clone()),
-            M::from_row,
-        ) {
+        let params = self.plan.params.clone();
+        record_query_with_params(&query, &params);
+        match conn.query_optional(&query, params_from_iter(params), M::from_row) {
             Ok(Some(model)) => {
                 self.consumed += 1;
                 Some(Ok(model))

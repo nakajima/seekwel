@@ -6,13 +6,16 @@
 //! [`Connection::file`](crate::connection::Connection::file), then retrieve it
 //! with [`Connection::get`](crate::connection::Connection::get).
 
+use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
+use rusqlite::types::Value;
 use rusqlite::{OptionalExtension, Params};
 
 use crate::error::Error;
 
 static GLOBAL: OnceLock<Mutex<Connection>> = OnceLock::new();
+static QUERY_LOG: OnceLock<Mutex<VecDeque<String>>> = OnceLock::new();
 
 /// The process-wide SQLite connection wrapper used by seekwel.
 pub struct Connection {
@@ -26,6 +29,7 @@ impl Connection {
     /// been set.
     pub fn file(path: &str) -> Result<(), Error> {
         let conn = rusqlite::Connection::open(path)?;
+        clear_query_log();
         GLOBAL
             .set(Mutex::new(Connection { conn }))
             .map_err(|_| Error::AlreadyInitialized)
@@ -48,6 +52,7 @@ impl Connection {
     /// ```
     pub fn memory() -> Result<(), Error> {
         let conn = rusqlite::Connection::open_in_memory()?;
+        clear_query_log();
         GLOBAL
             .set(Mutex::new(Connection { conn }))
             .map_err(|_| Error::AlreadyInitialized)
@@ -111,5 +116,87 @@ impl Connection {
         }
 
         Ok(values)
+    }
+
+    pub(crate) fn execute_batch(&self, sql: &str) -> Result<(), Error> {
+        record_query(sql);
+        self.conn.execute_batch(sql).map_err(Error::Sqlite)
+    }
+
+    /// Returns the most recent SQL strings seekwel attempted to execute.
+    pub fn recent_queries() -> Vec<String> {
+        query_log().lock().unwrap().iter().cloned().collect()
+    }
+
+    pub(crate) fn raw(&self) -> &rusqlite::Connection {
+        &self.conn
+    }
+
+    pub(crate) fn raw_mut(&mut self) -> &mut rusqlite::Connection {
+        &mut self.conn
+    }
+}
+
+pub(crate) fn record_query(query: &str) {
+    push_query_log(normalize_query(query));
+}
+
+pub(crate) fn record_query_with_params(query: &str, params: &[Value]) {
+    let normalized = normalize_query(query);
+    if normalized.is_empty() {
+        return;
+    }
+
+    if params.is_empty() {
+        push_query_log(normalized);
+        return;
+    }
+
+    let rendered_params = params
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!("?{}={}", index + 1, render_value(value)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    push_query_log(format!("{normalized} -- [{rendered_params}]"));
+}
+
+fn push_query_log(entry: String) {
+    if entry.is_empty() {
+        return;
+    }
+
+    let mut log = query_log().lock().unwrap();
+    if log.len() >= 100 {
+        log.pop_front();
+    }
+    log.push_back(entry);
+}
+
+fn query_log() -> &'static Mutex<VecDeque<String>> {
+    QUERY_LOG.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+fn clear_query_log() {
+    query_log().lock().unwrap().clear();
+}
+
+fn normalize_query(query: &str) -> String {
+    query.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn render_value(value: &Value) -> String {
+    match value {
+        Value::Null => "NULL".to_string(),
+        Value::Integer(value) => value.to_string(),
+        Value::Real(value) => value.to_string(),
+        Value::Text(value) => format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''")),
+        Value::Blob(bytes) => {
+            let hex = bytes
+                .iter()
+                .map(|byte| format!("{:02X}", byte))
+                .collect::<String>();
+            format!("x'{hex}'")
+        }
     }
 }

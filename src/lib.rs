@@ -47,12 +47,14 @@ pub mod connection;
 pub mod error;
 /// Model traits, query types, and SQLite field conversions.
 pub mod model;
+/// Schema planning and migration helpers.
+pub mod schema;
 mod sql;
 
 pub use model::{
-    BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, Lazy, LazyIter,
-    LazyQuery, LazyTryIter, ModelQueryDsl, NewRecord, Order, Persisted, Query, QueryDsl,
-    SqlField,
+    BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, HasMany, Lazy,
+    LazyIter, LazyQuery, LazyTryIter, ModelQueryDsl, NewRecord, Order, Persisted,
+    PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl, SqlField,
 };
 
 /// Derive macro that implements seekwel's model traits for a typestate model struct.
