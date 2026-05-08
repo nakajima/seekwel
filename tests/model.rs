@@ -1,3 +1,4 @@
+use seekwel::ModelRecord;
 use seekwel::connection::Connection;
 use seekwel::error::Error;
 use seekwel::prelude::*;
@@ -22,10 +23,19 @@ fn builder_save_reload_and_delete() -> Result<(), Error> {
     assert_eq!(draft.name, "Pat");
     assert_eq!(draft.age, Some(100));
     assert_eq!(draft.id, 0);
+    assert_eq!(draft.persisted_id(), None);
+    assert_eq!(draft.persisted_primary_key_value(), None);
+    assert!(draft.is_new_record());
 
     let mut person = draft.save()?;
     expect_persisted(&person);
     assert_eq!(person.id, 1);
+    assert_eq!(person.persisted_id(), Some(1));
+    assert_eq!(
+        person.persisted_primary_key_value(),
+        Some(rusqlite::types::Value::Integer(1))
+    );
+    assert!(person.is_persisted());
 
     let id = person.id;
     person.reload()?;

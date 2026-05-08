@@ -191,6 +191,25 @@ pub trait Model: Sized {
     }
 }
 
+/// Exposes whether a typestate model value has already been persisted.
+pub trait ModelRecord: Model + Sized {
+    /// Returns this record's persisted id, or `None` for unsaved records.
+    fn persisted_id(&self) -> Option<u64>;
+
+    /// Returns this record's persisted primary-key value, or `None` for unsaved records.
+    fn persisted_primary_key_value(&self) -> Option<Value>;
+
+    /// Returns whether this record has already been persisted.
+    fn is_persisted(&self) -> bool {
+        self.persisted_primary_key_value().is_some()
+    }
+
+    /// Returns whether this record has not been persisted yet.
+    fn is_new_record(&self) -> bool {
+        !self.is_persisted()
+    }
+}
+
 /// Behavior available only for persisted model values.
 pub trait PersistedModel: Model + Sized {
     /// Returns the model's primary key in the non-negative association-id representation.

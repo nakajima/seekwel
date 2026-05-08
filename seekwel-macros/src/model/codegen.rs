@@ -402,6 +402,33 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             }
         }
 
+        impl seekwel::model::ModelRecord for #name<seekwel::NewRecord> {
+            fn persisted_id(&self) -> Option<u64> {
+                None
+            }
+
+            fn persisted_primary_key_value(&self) -> Option<rusqlite::types::Value> {
+                None
+            }
+        }
+
+        impl seekwel::model::ModelRecord for #name<seekwel::Persisted> {
+            fn persisted_id(&self) -> Option<u64> {
+                Some(
+                    <#primary_key_ty as seekwel::model::PrimaryKeyField>::to_association_id(
+                        &self.#primary_key_ident,
+                    )
+                    .expect("seekwel persisted model primary key should convert to a non-negative u64 association id"),
+                )
+            }
+
+            fn persisted_primary_key_value(&self) -> Option<rusqlite::types::Value> {
+                Some(<#primary_key_ty as seekwel::model::SqlField>::to_sql_value(
+                    &self.#primary_key_ident,
+                ))
+            }
+        }
+
         impl seekwel::model::PersistedModel for #name<seekwel::Persisted> {
             fn id(&self) -> u64 {
                 <#primary_key_ty as seekwel::model::PrimaryKeyField>::to_association_id(&self.#primary_key_ident)

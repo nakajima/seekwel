@@ -53,7 +53,7 @@ mod sql;
 
 pub use model::{
     BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, HasMany, Lazy,
-    LazyIter, LazyQuery, LazyTryIter, ModelQueryDsl, NewRecord, Order, Persisted,
+    LazyIter, LazyQuery, LazyTryIter, ModelQueryDsl, ModelRecord, NewRecord, Order, Persisted,
     PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl, SqlField,
 };
 
