@@ -1,5 +1,8 @@
 use quote::format_ident;
-use syn::{Attribute, Data, DeriveInput, Expr, Field, Fields, GenericParam, Ident, Lit, Path, Type};
+use syn::{
+    Attribute, Data, DeriveInput, Expr, Field, Fields, GenericParam, Ident, Lit, Path, Type,
+    parse_quote,
+};
 
 use super::ir::{HasManyFieldSpec, ModelFieldSpec, ModelSpec, PrimaryKeySpec, StoredFieldSpec};
 
@@ -7,6 +10,7 @@ struct ModelConfig {
     table_name: Option<String>,
     primary_key: Option<String>,
     auto_increment: Option<bool>,
+    validator: Option<Path>,
 }
 
 pub(crate) fn analyze_model(input: DeriveInput) -> Result<ModelSpec, syn::Error> {
@@ -18,6 +22,9 @@ pub(crate) fn analyze_model(input: DeriveInput) -> Result<ModelSpec, syn::Error>
         .unwrap_or_else(|| name.to_string().to_lowercase());
     let primary_key_name = config.primary_key.unwrap_or_else(|| "id".to_string());
     let auto_increment = config.auto_increment.unwrap_or(true);
+    let validator = config
+        .validator
+        .unwrap_or_else(|| parse_quote!(seekwel::model::NoValidation));
     let builder_name = format_ident!("{}Builder", name);
     let columns_name = format_ident!("{}Columns", name);
 
@@ -68,12 +75,17 @@ pub(crate) fn analyze_model(input: DeriveInput) -> Result<ModelSpec, syn::Error>
 
     let state_fields: Vec<_> = fields
         .iter()
-        .filter(|field| is_phantom_data_type(&field.ty))
+        .filter(|field| {
+            field
+                .ident
+                .as_ref()
+                .is_some_and(|ident| ident == "__seekwel_state")
+        })
         .collect();
     if state_fields.len() != 1 {
         return Err(syn::Error::new_spanned(
             &name,
-            "Model structs must contain exactly one PhantomData typestate field; use #[seekwel::model] to have it injected automatically",
+            "Model structs must contain exactly one __seekwel_state typestate field; use #[seekwel::model] to have it injected automatically",
         ));
     }
     let state_field_name = state_fields[0].ident.as_ref().unwrap().clone();
@@ -91,7 +103,7 @@ pub(crate) fn analyze_model(input: DeriveInput) -> Result<ModelSpec, syn::Error>
         .iter()
         .filter(|field| {
             let ident = field.ident.as_ref().unwrap();
-            ident != &pk_ident && !is_phantom_data_type(&field.ty)
+            ident != &pk_ident && ident != &state_field_name
         })
         .map(analyze_model_field)
         .collect::<Result<Vec<_>, _>>()?;
@@ -115,6 +127,7 @@ pub(crate) fn analyze_model(input: DeriveInput) -> Result<ModelSpec, syn::Error>
         columns_name,
         generics: input.generics,
         state_field_name,
+        validator,
         primary_key,
         fields: model_fields,
     })
@@ -125,6 +138,7 @@ fn parse_model_config(attrs: &[Attribute]) -> Result<ModelConfig, syn::Error> {
         table_name: None,
         primary_key: None,
         auto_increment: None,
+        validator: None,
     };
 
     for attr in attrs {
@@ -166,8 +180,17 @@ fn parse_model_config(attrs: &[Attribute]) -> Result<ModelConfig, syn::Error> {
                 return Ok(());
             }
 
+            if meta.path.is_ident("validator") {
+                let validator: Path = meta.value()?.parse()?;
+                if config.validator.is_some() {
+                    return Err(meta.error("duplicate `validator` option"));
+                }
+                config.validator = Some(validator);
+                return Ok(());
+            }
+
             Err(meta.error(
-                "unsupported seekwel model option; expected `table_name`, `primary_key`, or `auto_increment`",
+                "unsupported seekwel model option; expected `table_name`, `primary_key`, `auto_increment`, or `validator`",
             ))
         })?;
     }
@@ -338,18 +361,6 @@ fn is_supported_primary_key_type(ty: &Type) -> bool {
         quote::quote!(#ty).to_string().as_str(),
         "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8"
     )
-}
-
-fn is_phantom_data_type(ty: &Type) -> bool {
-    if let Type::Path(type_path) = ty {
-        return type_path
-            .path
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "PhantomData");
-    }
-
-    false
 }
 
 fn is_option_type(ty: &Type) -> bool {

@@ -8,6 +8,7 @@ pub(crate) struct ModelSpec {
     pub(crate) columns_name: Ident,
     pub(crate) generics: Generics,
     pub(crate) state_field_name: Ident,
+    pub(crate) validator: Path,
     pub(crate) primary_key: PrimaryKeySpec,
     pub(crate) fields: Vec<ModelFieldSpec>,
 }

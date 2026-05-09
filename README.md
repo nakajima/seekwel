@@ -97,6 +97,35 @@ async fn create_person(
 
 Association params use their stored column name, like `owner_id` for `owner: BelongsTo<Person>`. `HasMany` fields are not included in params.
 
+### validations
+
+Use a validator hook when declaring a model. Failed saves return `SaveError::Invalid(model)`, where the model has an `Invalid` typestate and carries Rails-style errors.
+
+```rs
+use seekwel::prelude::*;
+
+struct PersonValidator;
+
+#[seekwel::model(validator = PersonValidator)]
+struct Person {
+    id: u64,
+    name: String,
+}
+
+impl<S> seekwel::Validator<Person<S>> for PersonValidator {
+    fn validate(person: &Person<S>, errors: &mut seekwel::Errors<PersonColumns>) {
+        if person.name.trim().is_empty() {
+            errors.add(PersonColumns::Name, "can't be blank");
+        }
+    }
+}
+
+let draft = Person::builder().name("").build()?;
+if let Err(seekwel::SaveError::Invalid(invalid)) = draft.save() {
+    assert_eq!(invalid.errors().on(PersonColumns::Name), vec!["can't be blank"]);
+}
+```
+
 ### query records
 
 The model macro also generates a `PersonColumns` enum for type-safe queries.

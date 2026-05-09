@@ -1,6 +1,7 @@
 use seekwel::BelongsTo;
 use seekwel::connection::Connection;
 use seekwel::error::Error;
+use seekwel::prelude::*;
 
 #[seekwel::model]
 struct Person {
@@ -78,7 +79,7 @@ fn params_create_and_update_only_allowed_columns() -> Result<(), Error> {
     assert_eq!(manual.name, "Manual");
     assert!(matches!(
         manual.update(ManualPersonParams::new().key(8).allow([ManualPersonColumns::Key])),
-        Err(Error::InvalidParams(_))
+        Err(seekwel::SaveError::Error(Error::InvalidParams(_)))
     ));
 
     assert!(matches!(
@@ -91,7 +92,7 @@ fn params_create_and_update_only_allowed_columns() -> Result<(), Error> {
     ));
     assert!(matches!(
         person.update(PersonParams::new().name("Nope").allow([PersonColumns::Id])),
-        Err(Error::InvalidParams(_))
+        Err(seekwel::SaveError::Error(Error::InvalidParams(_)))
     ));
     assert!(matches!(
         Person::new(PersonParams::new().age(Some(1)).allow([PersonColumns::Age])),

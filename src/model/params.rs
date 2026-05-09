@@ -1,6 +1,7 @@
 //! Support types used by generated model params objects.
 
-use crate::model::Model;
+use crate::error::Error;
+use crate::model::{Model, NewModel, PersistedModel, SaveError};
 
 /// A form/input params object generated for a model.
 pub trait Params: Sized {
@@ -17,6 +18,50 @@ pub trait Params: Sized {
     /// Keeps every column generated for this params object available for model assignment.
     fn allow_all(self) -> Self::Allowed;
 }
+
+/// Hooks that connect a persisted model to its generated params object.
+pub trait ParamsModel: PersistedModel + Sized {
+    /// The new-record type built by params assignment.
+    type NewRecord: NewModel<Persisted = Self>;
+    /// The generated params type for this model.
+    type Params: Params<Model = Self>;
+
+    /// Builds a new record from filtered params.
+    fn build_from_params(
+        params: <Self::Params as Params>::Allowed,
+    ) -> Result<Self::NewRecord, Error>;
+
+    /// Applies filtered params to this persisted record without saving it.
+    fn apply_params(&mut self, params: <Self::Params as Params>::Allowed) -> Result<(), Error>;
+}
+
+/// Model-level params entrypoints exposed as associated functions and methods.
+pub trait ParamsModelDsl: ParamsModel {
+    /// Builds a new record from filtered params.
+    fn new(params: <Self::Params as Params>::Allowed) -> Result<Self::NewRecord, Error> {
+        Self::build_from_params(params)
+    }
+
+    /// Builds and inserts a persisted record from filtered params.
+    fn create(
+        params: <Self::Params as Params>::Allowed,
+    ) -> Result<Self, SaveError<<Self::NewRecord as NewModel>::Invalid>> {
+        <Self::NewRecord as NewModel>::save(
+            Self::build_from_params(params).map_err(SaveError::Error)?,
+        )
+    }
+
+    /// Applies filtered params and persists the updated record.
+    fn update(
+        &mut self,
+        params: <Self::Params as Params>::Allowed,
+    ) -> Result<(), SaveError<Self::Invalid>> {
+        self.apply_params(params).map_err(SaveError::Error)?;
+        <Self as PersistedModel>::save(self)
+    }
+}
+
+impl<M> ParamsModelDsl for M where M: ParamsModel {}
 
 /// Tracks whether a params field was provided.
 #[derive(Debug, Clone)]

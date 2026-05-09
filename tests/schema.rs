@@ -1,5 +1,6 @@
 use seekwel::connection::Connection;
 use seekwel::error::Error;
+use seekwel::prelude::*;
 use seekwel::schema::{ApplyMode, PlanBlocker, PlanOp, SchemaBuilder};
 
 mod v1 {

@@ -17,12 +17,13 @@ mod comparison;
 pub mod params;
 mod query;
 mod sql_field;
+mod validation;
 
 #[doc(hidden)]
 pub use association::HasManyAssociation;
 pub use association::{BelongsTo, HasMany};
 pub use comparison::{Comparison, ComparisonOperand};
-pub use params::Params;
+pub use params::{Params, ParamsModel, ParamsModelDsl};
 pub use query::{
     Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Lazy, LazyIter, LazyQuery, LazyTryIter,
     ModelQueryDsl, Order, Query, QueryDsl,
@@ -30,6 +31,9 @@ pub use query::{
 pub use sql_field::SqlField;
 #[doc(hidden)]
 pub use sql_field::column;
+pub use validation::{
+    Errors, Invalid, InvalidModel, NoValidation, SaveError, ValidationError, Validator,
+};
 
 /// Describes a non-primary-key database column for a model.
 #[derive(Debug, Clone)]
@@ -136,7 +140,7 @@ impl_signed_primary_key_field!(i64, i32, i16, i8);
 ///
 /// This trait is implemented for the generated `<ModelName>Columns` enum that
 /// the model macro creates next to each model type.
-pub trait Column: Copy + Clone {
+pub trait Column: Copy + Clone + PartialEq {
     /// Returns the SQL column name for this typed column.
     fn as_str(self) -> &'static str;
 
@@ -212,14 +216,54 @@ pub trait ModelRecord: Model + Sized {
     }
 }
 
+/// Behavior available only for new model values.
+pub trait NewModel: Model + Sized {
+    /// The persisted model type returned after insertion.
+    type Persisted: PersistedModel;
+    /// The invalid model type returned when validation fails.
+    type Invalid: InvalidModel<Column = Self::Column>;
+
+    /// Returns validation errors for this model value.
+    fn validation_errors(&self) -> Errors<Self::Column>;
+
+    /// Converts this value into its invalid representation.
+    fn into_invalid(self, errors: Errors<Self::Column>) -> Self::Invalid;
+
+    /// Converts this inserted value into its persisted representation.
+    fn into_persisted(self, id: u64) -> Result<Self::Persisted, Error>;
+
+    /// Inserts this record and returns the persisted value.
+    fn save(self) -> Result<Self::Persisted, SaveError<Self::Invalid>> {
+        let errors = self.validation_errors();
+        if !errors.is_empty() {
+            return Err(SaveError::Invalid(self.into_invalid(errors)));
+        }
+
+        let id = insert(&self).map_err(SaveError::Error)?;
+        self.into_persisted(id).map_err(SaveError::Error)
+    }
+}
+
 /// Behavior available only for persisted model values.
 pub trait PersistedModel: Model + Sized {
+    /// The invalid model type returned when validation fails.
+    type Invalid: InvalidModel<Column = Self::Column>;
+
+    /// Creates the model's SQLite table if it does not already exist.
+    fn create_table() -> Result<(), Error> {
+        <Self as Model>::create_table()
+    }
+
     /// Returns the model's primary key in the non-negative association-id representation.
     fn id(&self) -> u64;
     /// Returns the model's primary-key value as a SQLite parameter.
     fn primary_key_value(&self) -> Value;
     /// Builds a persisted model instance from a SQLite row.
     fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self>;
+    /// Returns validation errors for this model value.
+    fn validation_errors(&self) -> Errors<Self::Column>;
+    /// Converts this value into its invalid representation.
+    fn to_invalid(&self, errors: Errors<Self::Column>) -> Self::Invalid;
 
     /// Loads a persisted model by primary key.
     fn find<K>(id: K) -> Result<Self, Error>
@@ -227,7 +271,8 @@ pub trait PersistedModel: Model + Sized {
         K: PrimaryKeyLookup,
     {
         let conn = Connection::get()?;
-        let query = sql::select_by_primary_key(Self::table_name(), Self::primary_key(), Self::columns());
+        let query =
+            sql::select_by_primary_key(Self::table_name(), Self::primary_key(), Self::columns());
         let param = id.into_primary_key_value();
         let params = vec![param.clone()];
         record_query_with_params(&query, &params);
@@ -235,17 +280,27 @@ pub trait PersistedModel: Model + Sized {
     }
 
     /// Persists the current in-memory field values back to the database.
-    fn save(&self) -> Result<(), Error> {
+    fn save(&self) -> Result<(), SaveError<Self::Invalid>> {
+        let errors = self.validation_errors();
+        if !errors.is_empty() {
+            return Err(SaveError::Invalid(self.to_invalid(errors)));
+        }
+
         let mut params = self.params();
         params.push(self.primary_key_value());
 
-        let conn = Connection::get()?;
-        let query = sql::update_by_primary_key(Self::table_name(), Self::primary_key(), Self::columns());
+        let conn = Connection::get().map_err(SaveError::Error)?;
+        let query =
+            sql::update_by_primary_key(Self::table_name(), Self::primary_key(), Self::columns());
         record_query_with_params(&query, &params);
-        let changed = conn.execute(&query, params_from_iter(params))?;
+        let changed = conn
+            .execute(&query, params_from_iter(params))
+            .map_err(SaveError::Error)?;
 
         if changed == 0 {
-            return Err(Error::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+            return Err(SaveError::Error(Error::Sqlite(
+                rusqlite::Error::QueryReturnedNoRows,
+            )));
         }
 
         Ok(())

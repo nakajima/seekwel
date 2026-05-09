@@ -5,12 +5,15 @@ mod ir;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
-use syn::{Field, Fields, ItemStruct, LitBool, LitStr, Token, parse_macro_input, parse_quote};
+use syn::{
+    Field, Fields, ItemStruct, LitBool, LitStr, Path, Token, parse_macro_input, parse_quote,
+};
 
 struct ModelArgs {
     table_name: Option<LitStr>,
     primary_key: Option<LitStr>,
     auto_increment: Option<LitBool>,
+    validator: Option<Path>,
 }
 
 impl Parse for ModelArgs {
@@ -19,6 +22,7 @@ impl Parse for ModelArgs {
             table_name: None,
             primary_key: None,
             auto_increment: None,
+            validator: None,
         };
 
         while !input.is_empty() {
@@ -28,7 +32,10 @@ impl Parse for ModelArgs {
             match key.to_string().as_str() {
                 "table_name" => {
                     if args.table_name.is_some() {
-                        return Err(syn::Error::new_spanned(key, "duplicate `table_name` option"));
+                        return Err(syn::Error::new_spanned(
+                            key,
+                            "duplicate `table_name` option",
+                        ));
                     }
                     args.table_name = Some(input.parse()?);
                 }
@@ -50,10 +57,16 @@ impl Parse for ModelArgs {
                     }
                     args.auto_increment = Some(input.parse()?);
                 }
+                "validator" => {
+                    if args.validator.is_some() {
+                        return Err(syn::Error::new_spanned(key, "duplicate `validator` option"));
+                    }
+                    args.validator = Some(input.parse()?);
+                }
                 _ => {
                     return Err(syn::Error::new_spanned(
                         key,
-                        "unsupported seekwel::model option; expected `table_name`, `primary_key`, or `auto_increment`",
+                        "unsupported seekwel::model option; expected `table_name`, `primary_key`, `auto_increment`, or `validator`",
                     ));
                 }
             }
@@ -107,7 +120,7 @@ pub(crate) fn expand_model_attribute(attr: TokenStream, item: TokenStream) -> To
     item.generics = parse_quote!(<S = seekwel::Persisted>);
 
     let state_field: Field = parse_quote! {
-        __seekwel_state: std::marker::PhantomData<S>
+        __seekwel_state: S
     };
     fields.named.push(state_field);
 
@@ -124,8 +137,12 @@ pub(crate) fn expand_model_attribute(attr: TokenStream, item: TokenStream) -> To
     if let Some(auto_increment) = args.auto_increment {
         seekwel_options.push(quote!(auto_increment = #auto_increment));
     }
+    if let Some(validator) = args.validator {
+        seekwel_options.push(quote!(validator = #validator));
+    }
     if !seekwel_options.is_empty() {
-        item.attrs.push(parse_quote!(#[seekwel(#(#seekwel_options),*)]));
+        item.attrs
+            .push(parse_quote!(#[seekwel(#(#seekwel_options),*)]));
     }
 
     quote!(#item).into()

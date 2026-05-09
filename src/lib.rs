@@ -58,9 +58,11 @@ pub mod __private {
 }
 
 pub use model::{
-    BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, HasMany, Lazy,
-    LazyIter, LazyQuery, LazyTryIter, ModelQueryDsl, ModelRecord, NewRecord, Order, Params,
-    Persisted, PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl, SqlField,
+    BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, Errors, HasMany,
+    Invalid, InvalidModel, Lazy, LazyIter, LazyQuery, LazyTryIter, Model, ModelQueryDsl,
+    ModelRecord, NewModel, NewRecord, NoValidation, Order, Params, ParamsModel, ParamsModelDsl,
+    Persisted, PersistedModel, PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl, SaveError,
+    SqlField, ValidationError, Validator,
 };
 
 /// Derive macro that implements seekwel's model traits for a typestate model struct.
@@ -70,10 +72,18 @@ pub use seekwel_macros::model;
 
 /// Common trait imports for query building.
 pub mod prelude {
+    /// Accessors for invalid model values returned by validation failures.
+    pub use crate::InvalidModel;
     /// Model-level query entrypoints like `Person::all()` and `Person::lazy()`.
     pub use crate::ModelQueryDsl;
+    /// New-record operations like `.save()`.
+    pub use crate::NewModel;
     /// Params filtering helpers like `.allow(...)`.
     pub use crate::Params;
+    /// Model-level params entrypoints like `Person::new(...)` and `person.update(...)`.
+    pub use crate::ParamsModelDsl;
+    /// Persisted-record operations like `find(...)`, `.save()`, and `.delete()`.
+    pub use crate::PersistedModel;
     /// Query-value chaining methods like `.q(...)`, `.and(...)`, and `.all()`.
     pub use crate::QueryDsl;
     /// Typed column helpers like `PersonColumns::Name.asc()` and `.desc()`.

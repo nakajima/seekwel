@@ -15,6 +15,7 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     let allowed_params_name = format_ident!("Allowed{}Params", name);
     let columns_name = &spec.columns_name;
     let state_field_name = &spec.state_field_name;
+    let validator = &spec.validator;
     let primary_key = &spec.primary_key;
     let primary_key_ident = &primary_key.ident;
     let primary_key_ty = &primary_key.ty;
@@ -369,6 +370,28 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
     });
 
+    let invalid_new_field_inits = spec.fields.iter().map(|field| match field {
+        ModelFieldSpec::Stored(field) => {
+            let field_name = &field.ident;
+            quote! { #field_name: self.#field_name }
+        }
+        ModelFieldSpec::HasMany(field) => {
+            let field_name = &field.ident;
+            quote! { #field_name: self.#field_name }
+        }
+    });
+
+    let invalid_persisted_field_inits = spec.fields.iter().map(|field| match field {
+        ModelFieldSpec::Stored(field) => {
+            let field_name = &field.ident;
+            quote! { #field_name: self.#field_name.clone() }
+        }
+        ModelFieldSpec::HasMany(field) => {
+            let field_name = &field.ident;
+            quote! { #field_name: self.#field_name.clone() }
+        }
+    });
+
     let belongs_to_methods = stored_fields.iter().filter_map(|field| {
         let association_target = field.association_target.as_ref()?;
         let field_name = &field.ident;
@@ -434,9 +457,9 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         let association_key_const = &field.association_key_const;
         let setter = &field.ident;
         let append_call = if field.is_optional {
-            quote! { builder.#setter(Some(parent_id)).create() }
+            quote! { Ok(builder.#setter(Some(parent_id)).create()?) }
         } else {
-            quote! { builder.#setter(parent_id).create() }
+            quote! { Ok(builder.#setter(parent_id).create()?) }
         };
 
         Some(quote! {
@@ -446,7 +469,10 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
 
                 fn load_for_parent(parent_id: u64) -> Result<Vec<Self>, seekwel::error::Error> {
                     <seekwel::model::Query<Self> as seekwel::model::QueryDsl>::all(
-                        Self::q(#columns_name::#query_variant, seekwel::Comparison::Eq(parent_id))
+                        seekwel::model::Query::new(
+                            #columns_name::#query_variant,
+                            seekwel::Comparison::Eq(parent_id),
+                        )
                     )
                 }
 
@@ -685,23 +711,75 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                     #primary_key_ident,
                     #(#from_row_fields,)*
                     #(#from_row_has_many_fields,)*
-                    #state_field_name: std::marker::PhantomData,
+                    #state_field_name: seekwel::Persisted,
+                })
+            }
+
+            type Invalid = #name<seekwel::Invalid<seekwel::Persisted, #columns_name>>;
+
+            fn validation_errors(&self) -> seekwel::Errors<Self::Column> {
+                let mut errors = seekwel::Errors::new();
+                <#validator as seekwel::model::Validator<Self>>::validate(self, &mut errors);
+                errors
+            }
+
+            fn to_invalid(&self, errors: seekwel::Errors<Self::Column>) -> Self::Invalid {
+                #name {
+                    #primary_key_ident: self.#primary_key_ident.clone(),
+                    #(#invalid_persisted_field_inits,)*
+                    #state_field_name: seekwel::Invalid::new(seekwel::Persisted, errors),
+                }
+            }
+        }
+
+        impl seekwel::model::NewModel for #name<seekwel::NewRecord> {
+            type Persisted = #name<seekwel::Persisted>;
+            type Invalid = #name<seekwel::Invalid<seekwel::NewRecord, #columns_name>>;
+
+            fn validation_errors(&self) -> seekwel::Errors<Self::Column> {
+                let mut errors = seekwel::Errors::new();
+                <#validator as seekwel::model::Validator<Self>>::validate(self, &mut errors);
+                errors
+            }
+
+            fn into_invalid(self, errors: seekwel::Errors<Self::Column>) -> Self::Invalid {
+                #name {
+                    #primary_key_ident: self.#primary_key_ident,
+                    #(#invalid_new_field_inits,)*
+                    #state_field_name: seekwel::Invalid::new(seekwel::NewRecord, errors),
+                }
+            }
+
+            fn into_persisted(
+                self,
+                id: u64,
+            ) -> Result<Self::Persisted, seekwel::error::Error> {
+                let __seekwel_primary_key: #primary_key_ty = #persisted_primary_key_expr;
+                let __seekwel_association_id =
+                    <#primary_key_ty as seekwel::model::PrimaryKeyField>::to_association_id(&__seekwel_primary_key)?;
+                Ok(#name {
+                    #primary_key_ident: __seekwel_primary_key,
+                    #(#persisted_field_inits,)*
+                    #state_field_name: seekwel::Persisted,
                 })
             }
         }
 
-        impl #name<seekwel::Persisted> {
-            #[doc = concat!("Creates a builder for [`", stringify!(#name), "<seekwel::NewRecord>`].")]
-            pub fn builder() -> #builder_name {
-                #builder_name {
-                    #(#builder_defaults,)*
-                }
-            }
+        impl<S> seekwel::model::InvalidModel for #name<seekwel::Invalid<S, #columns_name>> {
+            type PreviousState = S;
 
-            #[doc = concat!("Builds [`", stringify!(#name), "<seekwel::NewRecord>`] from allowed params.")]
-            pub fn new(
+            fn errors(&self) -> &seekwel::Errors<Self::Column> {
+                self.#state_field_name.errors()
+            }
+        }
+
+        impl seekwel::model::params::ParamsModel for #name<seekwel::Persisted> {
+            type NewRecord = #name<seekwel::NewRecord>;
+            type Params = #params_name;
+
+            fn build_from_params(
                 __seekwel_allowed_params: #allowed_params_name,
-            ) -> Result<#name<seekwel::NewRecord>, seekwel::error::Error> {
+            ) -> Result<Self::NewRecord, seekwel::error::Error> {
                 let #allowed_params_name {
                     params: __seekwel_params,
                     allowed: __seekwel_allowed,
@@ -715,50 +793,11 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 Ok(#name {
                     #primary_key_params_new_init,
                     #(#new_record_field_inits,)*
-                    #state_field_name: std::marker::PhantomData,
+                    #state_field_name: seekwel::NewRecord,
                 })
             }
 
-            #[doc = concat!("Builds and inserts [`", stringify!(#name), "<seekwel::Persisted>`] from allowed params.")]
-            pub fn create(
-                __seekwel_allowed_params: #allowed_params_name,
-            ) -> Result<Self, seekwel::error::Error> {
-                Self::new(__seekwel_allowed_params)?.save()
-            }
-
-            #[doc = "Creates the backing SQLite table if it does not already exist."]
-            pub fn create_table() -> Result<(), seekwel::error::Error> {
-                <Self as seekwel::model::Model>::create_table()
-            }
-
-            #[doc = "Finds a persisted record by primary key."]
-            pub fn find<K>(id: K) -> Result<Self, seekwel::error::Error>
-            where
-                K: seekwel::model::PrimaryKeyLookup,
-            {
-                <Self as seekwel::model::PersistedModel>::find(id)
-            }
-
-            #[doc = "Starts a typed query for this model."]
-            pub fn q(
-                column: #columns_name,
-                comparison: seekwel::model::Comparison,
-            ) -> seekwel::model::Query<Self> {
-                seekwel::model::Query::new(column, comparison)
-            }
-
-            #[doc = "Persists the current in-memory field values back to the database."]
-            pub fn save(&self) -> Result<(), seekwel::error::Error> {
-                <Self as seekwel::model::PersistedModel>::save(self)
-            }
-
-            #[doc = "Reloads this persisted record from the database."]
-            pub fn reload(&mut self) -> Result<(), seekwel::error::Error> {
-                <Self as seekwel::model::PersistedModel>::reload(self)
-            }
-
-            #[doc = "Applies allowed params and persists the updated record."]
-            pub fn update(
+            fn apply_params(
                 &mut self,
                 __seekwel_allowed_params: #allowed_params_name,
             ) -> Result<(), seekwel::error::Error> {
@@ -771,31 +810,20 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 #primary_key_update_params_validation
                 #(#params_update_assignments)*
 
-                <Self as seekwel::model::PersistedModel>::save(self)
+                Ok(())
             }
+        }
 
-            #[doc = "Deletes this persisted record from the database."]
-            pub fn delete(self) -> Result<(), seekwel::error::Error> {
-                <Self as seekwel::model::PersistedModel>::delete(self)
+        impl #name<seekwel::Persisted> {
+            #[doc = concat!("Creates a builder for [`", stringify!(#name), "<seekwel::NewRecord>`].")]
+            pub fn builder() -> #builder_name {
+                #builder_name {
+                    #(#builder_defaults,)*
+                }
             }
 
             #(#belongs_to_methods)*
             #(#has_many_methods)*
-        }
-
-        impl #name<seekwel::NewRecord> {
-            #[doc = "Inserts this record and returns the persisted value."]
-            pub fn save(self) -> Result<#name<seekwel::Persisted>, seekwel::error::Error> {
-                let id = seekwel::model::insert(&self)?;
-                let __seekwel_primary_key: #primary_key_ty = #persisted_primary_key_expr;
-                let __seekwel_association_id =
-                    <#primary_key_ty as seekwel::model::PrimaryKeyField>::to_association_id(&__seekwel_primary_key)?;
-                Ok(#name {
-                    #primary_key_ident: __seekwel_primary_key,
-                    #(#persisted_field_inits,)*
-                    #state_field_name: std::marker::PhantomData,
-                })
-            }
         }
 
         #[doc = concat!("Builder for [`", stringify!(#name), "<seekwel::NewRecord>`].")]
@@ -813,13 +841,20 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 Ok(#name {
                     #new_record_primary_key_init,
                     #(#new_record_field_inits,)*
-                    #state_field_name: std::marker::PhantomData,
+                    #state_field_name: seekwel::NewRecord,
                 })
             }
 
             #[doc = concat!("Builds and inserts [`", stringify!(#name), "<seekwel::Persisted>`].")]
-            pub fn create(self) -> Result<#name<seekwel::Persisted>, seekwel::error::Error> {
-                self.build()?.save()
+            pub fn create(
+                self,
+            ) -> Result<
+                #name<seekwel::Persisted>,
+                seekwel::model::SaveError<<#name<seekwel::NewRecord> as seekwel::model::NewModel>::Invalid>,
+            > {
+                <#name<seekwel::NewRecord> as seekwel::model::NewModel>::save(
+                    self.build().map_err(seekwel::model::SaveError::Error)?,
+                )
             }
         }
     }
