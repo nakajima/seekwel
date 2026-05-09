@@ -64,6 +64,39 @@ let delete_me = Person::builder().name("Delete Me").create()?;
 delete_me.delete()?;
 ```
 
+### create and update from params
+
+The model macro also generates a `<Model>Params` type for form-like input. Params must be filtered with `allow(...)` before they can assign model fields.
+
+```rs
+let person = Person::create(
+    PersonParams::new()
+        .name("Pat")
+        .age(Some(123))
+        .allow([PersonColumns::Name, PersonColumns::Age]),
+)?;
+
+let mut person = Person::find(person.id)?;
+person.update(
+    PersonParams::new()
+        .name("Patricia")
+        .allow([PersonColumns::Name]),
+)?;
+```
+
+With the `serde` feature enabled, params objects implement `serde::Deserialize`, so they can be used with Axum forms without adding an Axum dependency to seekwel.
+
+```rs
+async fn create_person(
+    axum::extract::Form(params): axum::extract::Form<PersonParams>,
+) -> Result<(), AppError> {
+    Person::create(params.allow([PersonColumns::Name, PersonColumns::Age]))?;
+    Ok(())
+}
+```
+
+Association params use their stored column name, like `owner_id` for `owner: BelongsTo<Person>`. `HasMany` fields are not included in params.
+
 ### query records
 
 The model macro also generates a `PersonColumns` enum for type-safe queries.

@@ -6,6 +6,7 @@ use seekwel::error::Error;
 use seekwel::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize))]
 struct Email(String);
 
 impl SqlField for Email {

@@ -14,6 +14,7 @@ mod association;
 /// Builder support types used by generated model builders.
 pub mod builder;
 mod comparison;
+pub mod params;
 mod query;
 mod sql_field;
 
@@ -21,6 +22,7 @@ mod sql_field;
 pub use association::HasManyAssociation;
 pub use association::{BelongsTo, HasMany};
 pub use comparison::{Comparison, ComparisonOperand};
+pub use params::Params;
 pub use query::{
     Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Lazy, LazyIter, LazyQuery, LazyTryIter,
     ModelQueryDsl, Order, Query, QueryDsl,

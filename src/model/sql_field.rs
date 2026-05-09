@@ -14,6 +14,7 @@ use super::ColumnDef;
 /// use seekwel::{Comparison, SqlField, connection::Connection, prelude::*};
 ///
 /// #[derive(Debug, Clone, PartialEq, Eq)]
+/// #[cfg_attr(feature = "serde", derive(seekwel::__private::serde::Deserialize))]
 /// struct Email(String);
 ///
 /// impl SqlField for Email {

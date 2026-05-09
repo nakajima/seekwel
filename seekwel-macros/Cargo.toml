@@ -1,12 +1,16 @@
 [package]
 name = "seekwel-macros"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 description = "proc-macros for seekwel"
 license = "BSD-3-Clause"
 
 [lib]
 proc-macro = true
+
+[features]
+default = []
+serde = []
 
 [dependencies]
 syn = { version = "2", features = ["full"] }

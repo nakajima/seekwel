@@ -131,6 +131,16 @@ impl<T> From<u64> for BelongsTo<T> {
     }
 }
 
+#[cfg(feature = "serde")]
+impl<'de, T> serde::Deserialize<'de> for BelongsTo<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <u64 as serde::Deserialize>::deserialize(deserializer).map(Self::new)
+    }
+}
+
 macro_rules! impl_belongs_to_from_unsigned {
     ($($ty:ty),* $(,)?) => {
         $(

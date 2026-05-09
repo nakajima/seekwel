@@ -17,6 +17,8 @@ pub enum Error {
     InvalidModel(String),
     /// The requested query cannot be represented safely.
     InvalidQuery(String),
+    /// The provided params cannot be assigned safely.
+    InvalidParams(String),
     /// The requested association operation is invalid for the current model state.
     InvalidAssociation(String),
     /// The requested schema operation cannot be represented safely.
@@ -36,6 +38,7 @@ impl fmt::Display for Error {
             Error::MissingField(field) => write!(f, "Missing required field: {field}"),
             Error::InvalidModel(message) => write!(f, "Invalid model: {message}"),
             Error::InvalidQuery(message) => write!(f, "Invalid query: {message}"),
+            Error::InvalidParams(message) => write!(f, "Invalid params: {message}"),
             Error::InvalidAssociation(message) => write!(f, "Invalid association: {message}"),
             Error::InvalidSchema(message) => write!(f, "Invalid schema: {message}"),
             Error::SchemaBlocked(message) => write!(f, "Schema plan blocked: {message}"),

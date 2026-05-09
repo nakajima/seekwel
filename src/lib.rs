@@ -51,10 +51,16 @@ pub mod model;
 pub mod schema;
 mod sql;
 
+#[doc(hidden)]
+pub mod __private {
+    #[cfg(feature = "serde")]
+    pub use serde;
+}
+
 pub use model::{
     BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, HasMany, Lazy,
-    LazyIter, LazyQuery, LazyTryIter, ModelQueryDsl, ModelRecord, NewRecord, Order, Persisted,
-    PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl, SqlField,
+    LazyIter, LazyQuery, LazyTryIter, ModelQueryDsl, ModelRecord, NewRecord, Order, Params,
+    Persisted, PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl, SqlField,
 };
 
 /// Derive macro that implements seekwel's model traits for a typestate model struct.
@@ -66,6 +72,8 @@ pub use seekwel_macros::model;
 pub mod prelude {
     /// Model-level query entrypoints like `Person::all()` and `Person::lazy()`.
     pub use crate::ModelQueryDsl;
+    /// Params filtering helpers like `.allow(...)`.
+    pub use crate::Params;
     /// Query-value chaining methods like `.q(...)`, `.and(...)`, and `.all()`.
     pub use crate::QueryDsl;
     /// Typed column helpers like `PersonColumns::Name.asc()` and `.desc()`.

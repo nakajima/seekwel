@@ -11,6 +11,8 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     let vis = &spec.vis;
     let table_name = &spec.table_name;
     let builder_name = &spec.builder_name;
+    let params_name = format_ident!("{}Params", name);
+    let allowed_params_name = format_ident!("Allowed{}Params", name);
     let columns_name = &spec.columns_name;
     let state_field_name = &spec.state_field_name;
     let primary_key = &spec.primary_key;
@@ -21,13 +23,18 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     let primary_key_auto_increment = primary_key.auto_increment;
     let registry_suffix = name.to_string().to_ascii_lowercase();
     let registry_fn_name = format_ident!("__seekwel_registry_table_for_{}", registry_suffix);
-    let registry_entry_name =
-        format_ident!("__SEEKWEL_REGISTRY_ENTRY_FOR_{}", registry_suffix.to_ascii_uppercase());
+    let registry_entry_name = format_ident!(
+        "__SEEKWEL_REGISTRY_ENTRY_FOR_{}",
+        registry_suffix.to_ascii_uppercase()
+    );
 
     let stored_fields: Vec<_> = spec.stored_fields().collect();
     let has_many_fields: Vec<_> = spec.has_many_fields().collect();
 
-    let column_variants: Vec<_> = stored_fields.iter().map(|field| &field.query_variant).collect();
+    let column_variants: Vec<_> = stored_fields
+        .iter()
+        .map(|field| &field.query_variant)
+        .collect();
     let column_names: Vec<_> = stored_fields
         .iter()
         .map(|field| field.storage_column_name.as_str())
@@ -100,6 +107,19 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
     };
 
+    #[cfg(feature = "serde")]
+    let params_derives = quote! {
+        #[derive(Clone, Default, seekwel::__private::serde::Deserialize)]
+    };
+    #[cfg(not(feature = "serde"))]
+    let params_derives = quote! {
+        #[derive(Clone, Default)]
+    };
+    #[cfg(feature = "serde")]
+    let params_serde_default = quote! { #[serde(default)] };
+    #[cfg(not(feature = "serde"))]
+    let params_serde_default = quote! {};
+
     let mut builder_fields = Vec::<proc_macro2::TokenStream>::new();
     let mut builder_defaults = Vec::<proc_macro2::TokenStream>::new();
     let mut builder_setters = Vec::<proc_macro2::TokenStream>::new();
@@ -126,7 +146,8 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         let field_name = &field.ident;
         let field_name_str = field.field_name.as_str();
         if let Some(inner_ty) = field.optional_inner_ty.as_ref() {
-            builder_fields.push(quote! { #field_name: seekwel::model::builder::Optional<#inner_ty> });
+            builder_fields
+                .push(quote! { #field_name: seekwel::model::builder::Optional<#inner_ty> });
         } else {
             let ty = &field.ty;
             builder_fields.push(quote! { #field_name: seekwel::model::builder::Required<#ty> });
@@ -175,16 +196,167 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
     }
 
-    let new_record_field_inits = spec.fields.iter().map(|field| match field {
-        ModelFieldSpec::Stored(field) => {
-            let field_name = &field.ident;
-            quote! { #field_name }
+    let primary_key_params_field = if primary_key_auto_increment {
+        quote! {}
+    } else {
+        quote! {
+            #params_serde_default
+            #primary_key_ident: seekwel::model::params::Param<#primary_key_ty>,
         }
-        ModelFieldSpec::HasMany(field) => {
-            let field_name = &field.ident;
-            quote! { #field_name: seekwel::HasMany::new_unbound() }
+    };
+    let primary_key_params_setter = if primary_key_auto_increment {
+        quote! {}
+    } else {
+        quote! {
+            #[doc = concat!("Sets the `", #primary_key_name, "` params field.")]
+            pub fn #primary_key_ident(mut self, value: impl Into<#primary_key_ty>) -> Self {
+                self.#primary_key_ident = seekwel::model::params::Param::provided(value.into());
+                self
+            }
         }
-    });
+    };
+    let primary_key_params_new_extract = if primary_key_auto_increment {
+        quote! {}
+    } else {
+        quote! {
+            let #primary_key_ident = if __seekwel_is_allowed(#columns_name::#primary_key_variant) {
+                __seekwel_params
+                    .#primary_key_ident
+                    .into_value()
+                    .ok_or_else(|| seekwel::error::Error::MissingField(#primary_key_name.to_string()))?
+            } else {
+                return Err(seekwel::error::Error::MissingField(#primary_key_name.to_string()));
+            };
+        }
+    };
+    let primary_key_params_new_init = if primary_key_auto_increment {
+        quote! { #primary_key_ident: Default::default() }
+    } else {
+        quote! { #primary_key_ident }
+    };
+    let auto_primary_key_params_validation = if primary_key_auto_increment {
+        quote! {
+            if __seekwel_is_allowed(#columns_name::#primary_key_variant) {
+                return Err(seekwel::error::Error::InvalidParams(format!(
+                    "column `{}` is not assignable from params",
+                    #primary_key_name,
+                )));
+            }
+        }
+    } else {
+        quote! {}
+    };
+    let primary_key_update_params_validation = quote! {
+        if __seekwel_is_allowed(#columns_name::#primary_key_variant) {
+            return Err(seekwel::error::Error::InvalidParams(format!(
+                "column `{}` is not assignable by update params",
+                #primary_key_name,
+            )));
+        }
+    };
+    let params_allow_all_columns = if primary_key_auto_increment {
+        quote! { vec![#(#columns_name::#column_variants,)*] }
+    } else {
+        quote! { vec![#columns_name::#primary_key_variant, #(#columns_name::#column_variants,)*] }
+    };
+
+    let mut params_fields = Vec::<proc_macro2::TokenStream>::new();
+    let mut params_setters = Vec::<proc_macro2::TokenStream>::new();
+    let mut params_new_extracts = Vec::<proc_macro2::TokenStream>::new();
+    let mut params_update_assignments = Vec::<proc_macro2::TokenStream>::new();
+
+    for field in &stored_fields {
+        let model_field_name = &field.ident;
+        let param_field_name = if field.association_target.is_some() {
+            format_ident!("{}", field.storage_column_name.as_str())
+        } else {
+            field.ident.clone()
+        };
+        let param_field_name_str = field.storage_column_name.as_str();
+        let column_variant = &field.query_variant;
+        let ty = &field.ty;
+
+        params_fields.push(quote! {
+            #params_serde_default
+            #param_field_name: seekwel::model::params::Param<#ty>,
+        });
+
+        if field.is_optional {
+            if let Some(association_ty) = field
+                .optional_inner_ty
+                .as_ref()
+                .filter(|_| field.association_target.is_some())
+            {
+                params_setters.push(quote! {
+                    #[doc = concat!("Sets the `", #param_field_name_str, "` params field.")]
+                    pub fn #param_field_name<V>(mut self, value: Option<V>) -> Self
+                    where
+                        V: Into<#association_ty>,
+                    {
+                        self.#param_field_name =
+                            seekwel::model::params::Param::provided(value.map(Into::into));
+                        self
+                    }
+                });
+            } else {
+                params_setters.push(quote! {
+                    #[doc = concat!("Sets the `", #param_field_name_str, "` params field.")]
+                    pub fn #param_field_name(mut self, value: #ty) -> Self {
+                        self.#param_field_name = seekwel::model::params::Param::provided(value);
+                        self
+                    }
+                });
+            }
+            params_new_extracts.push(quote! {
+                let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
+                    __seekwel_params.#param_field_name.into_value().unwrap_or(None)
+                } else {
+                    None
+                };
+            });
+        } else {
+            params_setters.push(quote! {
+                #[doc = concat!("Sets the `", #param_field_name_str, "` params field.")]
+                pub fn #param_field_name(mut self, value: impl Into<#ty>) -> Self {
+                    self.#param_field_name = seekwel::model::params::Param::provided(value.into());
+                    self
+                }
+            });
+            params_new_extracts.push(quote! {
+                let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
+                    __seekwel_params
+                        .#param_field_name
+                        .into_value()
+                        .ok_or_else(|| seekwel::error::Error::MissingField(#param_field_name_str.to_string()))?
+                } else {
+                    return Err(seekwel::error::Error::MissingField(#param_field_name_str.to_string()));
+                };
+            });
+        }
+
+        params_update_assignments.push(quote! {
+            if __seekwel_is_allowed(#columns_name::#column_variant) {
+                if let Some(__seekwel_value) = __seekwel_params.#param_field_name.into_value() {
+                    self.#model_field_name = __seekwel_value;
+                }
+            }
+        });
+    }
+
+    let new_record_field_inits: Vec<_> = spec
+        .fields
+        .iter()
+        .map(|field| match field {
+            ModelFieldSpec::Stored(field) => {
+                let field_name = &field.ident;
+                quote! { #field_name }
+            }
+            ModelFieldSpec::HasMany(field) => {
+                let field_name = &field.ident;
+                quote! { #field_name: seekwel::HasMany::new_unbound() }
+            }
+        })
+        .collect();
 
     let persisted_field_inits = spec.fields.iter().map(|field| match field {
         ModelFieldSpec::Stored(field) => {
@@ -365,6 +537,71 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             }
         }
 
+        #[doc = concat!("Params object for [`", stringify!(#name), "`] assignment.")]
+        #params_derives
+        #vis struct #params_name {
+            #primary_key_params_field
+            #(#params_fields)*
+        }
+
+        impl #params_name {
+            #[doc = "Creates an empty params object."]
+            pub fn new() -> Self {
+                Self::default()
+            }
+
+            #primary_key_params_setter
+            #(#params_setters)*
+
+            #[doc = "Keeps only the listed columns available for model assignment."]
+            pub fn allow<I>(self, columns: I) -> #allowed_params_name
+            where
+                I: IntoIterator<Item = #columns_name>,
+            {
+                <Self as seekwel::model::Params>::allow(self, columns)
+            }
+
+            #[doc = "Keeps every column generated for this params object available for model assignment."]
+            pub fn allow_all(self) -> #allowed_params_name {
+                <Self as seekwel::model::Params>::allow_all(self)
+            }
+        }
+
+        impl seekwel::model::Params for #params_name {
+            type Model = #name<seekwel::Persisted>;
+            type Allowed = #allowed_params_name;
+
+            fn allow<I>(self, columns: I) -> Self::Allowed
+            where
+                I: IntoIterator<Item = <Self::Model as seekwel::model::Model>::Column>,
+            {
+                #allowed_params_name {
+                    params: self,
+                    allowed: columns.into_iter().collect(),
+                }
+            }
+
+            fn allow_all(self) -> Self::Allowed {
+                #allowed_params_name {
+                    params: self,
+                    allowed: #params_allow_all_columns,
+                }
+            }
+        }
+
+        #[doc = concat!("Filtered params object for [`", stringify!(#name), "`] assignment.")]
+        #vis struct #allowed_params_name {
+            params: #params_name,
+            allowed: std::vec::Vec<#columns_name>,
+        }
+
+        impl #allowed_params_name {
+            #[doc = "Returns whether a column is available for model assignment."]
+            pub fn allows(&self, column: #columns_name) -> bool {
+                self.allowed.contains(&column)
+            }
+        }
+
         #(#has_many_validations)*
         #(#has_many_association_impls)*
 
@@ -461,6 +698,34 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 }
             }
 
+            #[doc = concat!("Builds [`", stringify!(#name), "<seekwel::NewRecord>`] from allowed params.")]
+            pub fn new(
+                __seekwel_allowed_params: #allowed_params_name,
+            ) -> Result<#name<seekwel::NewRecord>, seekwel::error::Error> {
+                let #allowed_params_name {
+                    params: __seekwel_params,
+                    allowed: __seekwel_allowed,
+                } = __seekwel_allowed_params;
+                let __seekwel_is_allowed = |column: #columns_name| __seekwel_allowed.contains(&column);
+
+                #auto_primary_key_params_validation
+                #primary_key_params_new_extract
+                #(#params_new_extracts)*
+
+                Ok(#name {
+                    #primary_key_params_new_init,
+                    #(#new_record_field_inits,)*
+                    #state_field_name: std::marker::PhantomData,
+                })
+            }
+
+            #[doc = concat!("Builds and inserts [`", stringify!(#name), "<seekwel::Persisted>`] from allowed params.")]
+            pub fn create(
+                __seekwel_allowed_params: #allowed_params_name,
+            ) -> Result<Self, seekwel::error::Error> {
+                Self::new(__seekwel_allowed_params)?.save()
+            }
+
             #[doc = "Creates the backing SQLite table if it does not already exist."]
             pub fn create_table() -> Result<(), seekwel::error::Error> {
                 <Self as seekwel::model::Model>::create_table()
@@ -490,6 +755,23 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             #[doc = "Reloads this persisted record from the database."]
             pub fn reload(&mut self) -> Result<(), seekwel::error::Error> {
                 <Self as seekwel::model::PersistedModel>::reload(self)
+            }
+
+            #[doc = "Applies allowed params and persists the updated record."]
+            pub fn update(
+                &mut self,
+                __seekwel_allowed_params: #allowed_params_name,
+            ) -> Result<(), seekwel::error::Error> {
+                let #allowed_params_name {
+                    params: __seekwel_params,
+                    allowed: __seekwel_allowed,
+                } = __seekwel_allowed_params;
+                let __seekwel_is_allowed = |column: #columns_name| __seekwel_allowed.contains(&column);
+
+                #primary_key_update_params_validation
+                #(#params_update_assignments)*
+
+                <Self as seekwel::model::PersistedModel>::save(self)
             }
 
             #[doc = "Deletes this persisted record from the database."]
