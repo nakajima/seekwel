@@ -1,5 +1,6 @@
 use std::sync::{Mutex, OnceLock};
 
+use seekwel::ModelRecord;
 use seekwel::connection::Connection;
 use seekwel::error::Error;
 use seekwel::prelude::*;
@@ -49,6 +50,8 @@ fn new_record_save_returns_invalid_model_with_errors() -> Result<(), Error> {
         };
 
         assert_eq!(invalid.name, "");
+        assert_eq!(invalid.persisted_id(), None);
+        assert!(invalid.is_new_record());
         assert_eq!(
             invalid.errors().on(PersonColumns::Name),
             vec!["can't be blank"]
@@ -74,6 +77,8 @@ fn persisted_save_returns_invalid_model_with_errors() -> Result<(), Error> {
         };
 
         assert_eq!(invalid.id, person.id);
+        assert_eq!(invalid.persisted_id(), Some(person.id));
+        assert!(invalid.is_persisted());
         assert_eq!(
             invalid.errors().on(PersonColumns::Name),
             vec!["can't be blank"]

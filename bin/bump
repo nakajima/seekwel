@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_TOML="$ROOT/Cargo.toml"
+MACROS_TOML="$ROOT/seekwel-macros/Cargo.toml"
+LOCKFILE="$ROOT/Cargo.lock"
+
+usage() {
+  cat <<'EOF'
+Usage: bin/bump [VERSION]
+
+Bumps the seekwel crate version, the seekwel-macros crate version, and the
+seekwel-macros dependency version used by seekwel.
+
+If VERSION is omitted, bumps the current seekwel patch version.
+EOF
+}
+
+current_version() {
+  python3 - "$ROOT_TOML" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+in_package = False
+for raw in path.read_text().splitlines():
+    line = raw.strip()
+    if line.startswith('[') and line.endswith(']'):
+        in_package = line == '[package]'
+        continue
+    if in_package and line.startswith('version'):
+        print(line.split('=', 1)[1].strip().strip('"'))
+        break
+else:
+    raise SystemExit('could not find seekwel package version')
+PY
+}
+
+bump_patch() {
+  python3 - "$1" <<'PY'
+import re
+import sys
+
+version = sys.argv[1]
+match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)', version)
+if not match:
+    raise SystemExit(f'cannot patch-bump non-simple semver version: {version}')
+major, minor, patch = map(int, match.groups())
+print(f'{major}.{minor}.{patch + 1}')
+PY
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -gt 1 ]]; then
+  usage >&2
+  exit 1
+fi
+
+CURRENT="$(current_version)"
+VERSION="${1:-$(bump_patch "$CURRENT")}"
+
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+  echo "invalid version: $VERSION" >&2
+  exit 1
+fi
+
+python3 - "$ROOT_TOML" "$MACROS_TOML" "$LOCKFILE" "$VERSION" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+root_toml = Path(sys.argv[1])
+macros_toml = Path(sys.argv[2])
+lockfile = Path(sys.argv[3])
+version = sys.argv[4]
+
+
+def replace_package_version(path: Path, package_name: str) -> None:
+    lines = path.read_text().splitlines(keepends=True)
+    in_package = False
+    saw_name = False
+    changed = False
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            in_package = stripped == '[package]'
+            saw_name = False
+            continue
+
+        if not in_package:
+            continue
+
+        if stripped.startswith('name'):
+            saw_name = stripped.split('=', 1)[1].strip().strip('"') == package_name
+            continue
+
+        if saw_name and stripped.startswith('version'):
+            lines[index] = re.sub(r'"[^"]+"', f'"{version}"', line, count=1)
+            changed = True
+            break
+
+    if not changed:
+        raise SystemExit(f'could not update package version for {package_name} in {path}')
+
+    path.write_text(''.join(lines))
+
+
+def replace_dependency_version(path: Path, dependency_name: str) -> None:
+    lines = path.read_text().splitlines(keepends=True)
+    in_dependencies = False
+    changed = False
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            in_dependencies = stripped == '[dependencies]'
+            continue
+
+        if not in_dependencies or not stripped.startswith(f'{dependency_name} ='):
+            continue
+
+        updated, count = re.subn(r'version\s*=\s*"[^"]+"', f'version = "{version}"', line, count=1)
+        if count == 0:
+            raise SystemExit(f'could not find version for {dependency_name} dependency in {path}')
+        lines[index] = updated
+        changed = True
+        break
+
+    if not changed:
+        raise SystemExit(f'could not update dependency version for {dependency_name} in {path}')
+
+    path.write_text(''.join(lines))
+
+
+def replace_lock_package_version(path: Path, package_name: str) -> None:
+    if not path.exists():
+        return
+
+    lines = path.read_text().splitlines(keepends=True)
+    in_package = False
+    saw_name = False
+    changed = False
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == '[[package]]':
+            in_package = True
+            saw_name = False
+            continue
+
+        if stripped.startswith('[') and stripped != '[[package]]':
+            in_package = False
+            saw_name = False
+            continue
+
+        if not in_package:
+            continue
+
+        if stripped.startswith('name'):
+            saw_name = stripped.split('=', 1)[1].strip().strip('"') == package_name
+            continue
+
+        if saw_name and stripped.startswith('version'):
+            lines[index] = re.sub(r'"[^"]+"', f'"{version}"', line, count=1)
+            changed = True
+            break
+
+    if not changed:
+        raise SystemExit(f'could not update lockfile version for {package_name} in {path}')
+
+    path.write_text(''.join(lines))
+
+
+replace_package_version(root_toml, 'seekwel')
+replace_package_version(macros_toml, 'seekwel-macros')
+replace_dependency_version(root_toml, 'seekwel-macros')
+replace_lock_package_version(lockfile, 'seekwel')
+replace_lock_package_version(lockfile, 'seekwel-macros')
+PY
+
+echo "bumped $CURRENT -> $VERSION"
