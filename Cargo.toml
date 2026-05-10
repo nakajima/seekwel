@@ -3,7 +3,7 @@ members = ["seekwel-macros"]
 
 [package]
 name = "seekwel"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2024"
 description = "an experimental sqlite library"
 license = "BSD-3-Clause"
@@ -14,7 +14,7 @@ serde = ["dep:serde", "seekwel-macros/serde"]
 
 [dependencies]
 rusqlite = { version = "0.39.0", features = ["bundled-sqlcipher"] }
-seekwel-macros = { version = "0.1.13", path = "seekwel-macros" }
+seekwel-macros = { version = "0.1.14", path = "seekwel-macros" }
 serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]

@@ -23,6 +23,12 @@ struct ManualPerson {
     name: String,
 }
 
+#[seekwel::model(table_name = "apps")]
+struct App {
+    id: u64,
+    name: String,
+}
+
 #[test]
 fn params_create_and_update_only_allowed_columns() -> Result<(), Error> {
     Connection::memory()?;
@@ -114,10 +120,23 @@ fn params_deserialize_with_serde() -> Result<(), Error> {
 
     let deserializer = MapDeserializer::<_, DeError>::new([("name", "Alex")].into_iter());
     let params = PersonParams::deserialize(deserializer).unwrap();
+    assert!(matches!(
+        Person::new(params.allow([PersonColumns::Name])),
+        Err(Error::MissingField(field)) if field == "name"
+    ));
+
+    let deserializer = MapDeserializer::<_, DeError>::new([("person[name]", "Sam")].into_iter());
+    let params = PersonParams::deserialize(deserializer).unwrap();
     let draft = Person::new(params.allow([PersonColumns::Name]))?;
 
-    assert_eq!(draft.name, "Alex");
+    assert_eq!(draft.name, "Sam");
     assert_eq!(draft.age, None);
+
+    let deserializer = MapDeserializer::<_, DeError>::new([("app[name]", "Calendar")].into_iter());
+    let params = AppParams::deserialize(deserializer).unwrap();
+    let draft = App::new(params.allow([AppColumns::Name]))?;
+
+    assert_eq!(draft.name, "Calendar");
 
     Ok(())
 }

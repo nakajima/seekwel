@@ -116,10 +116,7 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     let params_derives = quote! {
         #[derive(Clone, Default)]
     };
-    #[cfg(feature = "serde")]
-    let params_serde_default = quote! { #[serde(default)] };
-    #[cfg(not(feature = "serde"))]
-    let params_serde_default = quote! {};
+    let params_root_name = default_params_root_name(table_name);
 
     let mut builder_fields = Vec::<proc_macro2::TokenStream>::new();
     let mut builder_defaults = Vec::<proc_macro2::TokenStream>::new();
@@ -200,8 +197,9 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     let primary_key_params_field = if primary_key_auto_increment {
         quote! {}
     } else {
+        let params_serde_attr = params_serde_attr(&params_root_name, primary_key_name);
         quote! {
-            #params_serde_default
+            #params_serde_attr
             #primary_key_ident: seekwel::model::params::Param<#primary_key_ty>,
         }
     };
@@ -276,9 +274,10 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         let param_field_name_str = field.storage_column_name.as_str();
         let column_variant = &field.query_variant;
         let ty = &field.ty;
+        let params_serde_attr = params_serde_attr(&params_root_name, param_field_name_str);
 
         params_fields.push(quote! {
-            #params_serde_default
+            #params_serde_attr
             #param_field_name: seekwel::model::params::Param<#ty>,
         });
 
@@ -885,4 +884,76 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             }
         }
     }
+}
+
+#[cfg(feature = "serde")]
+fn params_serde_attr(root: &str, column: &str) -> proc_macro2::TokenStream {
+    let name = format!("{root}[{column}]");
+    quote! { #[serde(default, rename = #name)] }
+}
+
+#[cfg(not(feature = "serde"))]
+fn params_serde_attr(_root: &str, _column: &str) -> proc_macro2::TokenStream {
+    quote! {}
+}
+
+fn default_params_root_name(table_name: &str) -> String {
+    to_snake_case(&singularize(table_name))
+}
+
+fn singularize(value: &str) -> String {
+    let lower = value.to_ascii_lowercase();
+
+    match lower.as_str() {
+        "children" => return "child".to_string(),
+        "feet" => return "foot".to_string(),
+        "geese" => return "goose".to_string(),
+        "men" => return "man".to_string(),
+        "people" => return "person".to_string(),
+        "teeth" => return "tooth".to_string(),
+        "women" => return "woman".to_string(),
+        _ => {}
+    }
+
+    if lower.ends_with("ies") && lower.len() > 3 {
+        format!("{}y", &value[..value.len() - 3])
+    } else if lower.ends_with("sses")
+        || lower.ends_with("shes")
+        || lower.ends_with("ches")
+        || lower.ends_with("xes")
+        || lower.ends_with("zes")
+    {
+        value[..value.len() - 2].to_string()
+    } else if lower.ends_with('s') && !lower.ends_with("ss") && value.len() > 1 {
+        value[..value.len() - 1].to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn to_snake_case(value: &str) -> String {
+    let mut output = String::new();
+    let mut previous_was_separator = false;
+    let mut previous_was_lower_or_digit = false;
+
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if ch.is_ascii_uppercase() && previous_was_lower_or_digit && !previous_was_separator {
+                output.push('_');
+            }
+            output.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+            previous_was_lower_or_digit = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        } else if !output.is_empty() && !previous_was_separator {
+            output.push('_');
+            previous_was_separator = true;
+            previous_was_lower_or_digit = false;
+        }
+    }
+
+    while output.ends_with('_') {
+        output.pop();
+    }
+
+    output
 }
