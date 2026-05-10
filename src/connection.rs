@@ -166,6 +166,8 @@ fn push_query_log(entry: String) {
         return;
     }
 
+    log::debug!(target: "seekwel::sql", "  SQL  {entry}");
+
     let mut log = query_log().lock().unwrap();
     if log.len() >= 100 {
         log.pop_front();
