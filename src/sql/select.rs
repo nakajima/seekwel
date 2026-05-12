@@ -205,7 +205,13 @@ pub(crate) fn select_where(
     clause: &str,
     limit_one: bool,
 ) -> String {
-    select(table_name, primary_key_name, columns, Some(clause), limit_one)
+    select(
+        table_name,
+        primary_key_name,
+        columns,
+        Some(clause),
+        limit_one,
+    )
 }
 
 /// Appends `LIMIT` and `OFFSET` clauses to an existing `SELECT` statement.

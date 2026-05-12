@@ -4,7 +4,9 @@ use crate::error::Error;
 use super::apply;
 use super::diff;
 use super::introspect;
-use super::types::{json_escape, stable_hash_hex, ARTIFACT_VERSION, ColumnDef, SchemaDef, TableDef};
+use super::types::{
+    ARTIFACT_VERSION, ColumnDef, SchemaDef, TableDef, json_escape, stable_hash_hex,
+};
 
 /// Controls which schema plans may be applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,25 +40,26 @@ pub struct Plan {
 
 impl Plan {
     pub(crate) fn build(target: SchemaDef) -> Result<Self, Error> {
-        let conn = Connection::get()?;
-        let scope = introspect::managed_scope(conn.raw(), &target)?;
-        let actual = introspect::introspect_managed(conn.raw(), &scope)?;
-        let diff = diff::diff(&target, &actual)?;
-        let source_fingerprint = diff.source.fingerprint();
-        let target_fingerprint = target.fingerprint();
+        Connection::with_read(|conn| {
+            let scope = introspect::managed_scope(conn, &target)?;
+            let actual = introspect::introspect_managed(conn, &scope)?;
+            let diff = diff::diff(&target, &actual)?;
+            let source_fingerprint = diff.source.fingerprint();
+            let target_fingerprint = target.fingerprint();
 
-        let mut plan = Self {
-            artifact_version: ARTIFACT_VERSION,
-            source: diff.source,
-            target,
-            source_fingerprint,
-            target_fingerprint,
-            ops: diff.ops,
-            blockers: diff.blockers,
-            plan_id: String::new(),
-        };
-        plan.plan_id = plan.compute_plan_id();
-        Ok(plan)
+            let mut plan = Self {
+                artifact_version: ARTIFACT_VERSION,
+                source: diff.source,
+                target,
+                source_fingerprint,
+                target_fingerprint,
+                ops: diff.ops,
+                blockers: diff.blockers,
+                plan_id: String::new(),
+            };
+            plan.plan_id = plan.compute_plan_id();
+            Ok(plan)
+        })
     }
 
     /// Returns `true` when automatic apply must refuse the plan.
@@ -124,15 +127,22 @@ impl Plan {
 /// A planned schema operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanOp {
-    CreateTable { table: TableDef },
-    AddColumn { table: String, column: ColumnDef },
+    CreateTable {
+        table: TableDef,
+    },
+    AddColumn {
+        table: String,
+        column: ColumnDef,
+    },
     RebuildTable {
         table: String,
         from: TableDef,
         to: TableDef,
         reasons: Vec<RebuildReason>,
     },
-    DropTable { table: TableDef },
+    DropTable {
+        table: TableDef,
+    },
 }
 
 impl PlanOp {
@@ -171,7 +181,9 @@ impl PlanOp {
 /// Why a table rebuild is required.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RebuildReason {
-    DropColumns { columns: Vec<String> },
+    DropColumns {
+        columns: Vec<String>,
+    },
     ChangePrimaryKeyName {
         from: String,
         to: String,
@@ -285,7 +297,12 @@ impl PlanBlocker {
 }
 
 fn schema_tables_json(schema: &SchemaDef) -> String {
-    schema.tables.iter().map(table_json).collect::<Vec<_>>().join(",")
+    schema
+        .tables
+        .iter()
+        .map(table_json)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn table_json(table: &TableDef) -> String {
@@ -294,7 +311,12 @@ fn table_json(table: &TableDef) -> String {
         json_escape(&table.name),
         json_escape(&table.primary_key.name),
         json_escape(&table.primary_key.sql_type),
-        table.columns.iter().map(column_json).collect::<Vec<_>>().join(",")
+        table
+            .columns
+            .iter()
+            .map(column_json)
+            .collect::<Vec<_>>()
+            .join(",")
     )
 }
 

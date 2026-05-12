@@ -5,7 +5,11 @@ use seekwel::error::Error;
 use seekwel::prelude::*;
 use seekwel::{BelongsTo, Comparison, HasMany};
 
-#[seekwel::model(table_name = "hyperlink_tombstone", primary_key = "hyperlink_id", auto_increment = false)]
+#[seekwel::model(
+    table_name = "hyperlink_tombstone",
+    primary_key = "hyperlink_id",
+    auto_increment = false
+)]
 struct HyperlinkTombstone {
     hyperlink_id: i32,
     updated_at: String,

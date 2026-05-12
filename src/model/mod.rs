@@ -32,7 +32,8 @@ pub use sql_field::SqlField;
 #[doc(hidden)]
 pub use sql_field::column;
 pub use validation::{
-    Errors, Invalid, InvalidModel, NoValidation, SaveError, ValidationError, Validator,
+    CreateOrUpdateError, Errors, Invalid, InvalidModel, NoValidation, SaveError, ValidationError,
+    Validator,
 };
 
 /// Describes a non-primary-key database column for a model.
@@ -276,7 +277,7 @@ pub trait PersistedModel: Model + Sized {
         let param = id.into_primary_key_value();
         let params = vec![param.clone()];
         record_query_with_params(&query, &params);
-        conn.query_row(&query, params_from_iter(params), Self::from_row)
+        conn.query_row_read(&query, params_from_iter(params), Self::from_row)
     }
 
     /// Persists the current in-memory field values back to the database.

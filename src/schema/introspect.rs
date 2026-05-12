@@ -82,7 +82,8 @@ pub(crate) fn introspect_managed(
             unsupported_inline_features.push("composite primary keys are not supported".into());
         }
         if column_rows.iter().any(|column| column.hidden != 0) {
-            unsupported_inline_features.push("generated or hidden columns are not supported".into());
+            unsupported_inline_features
+                .push("generated or hidden columns are not supported".into());
         }
         if column_rows
             .iter()
@@ -167,15 +168,14 @@ fn table_sql(conn: &rusqlite::Connection, table_name: &str) -> Result<Option<Str
     use rusqlite::OptionalExtension;
 
     let query = "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?1";
-    record_query_with_params(query, &[rusqlite::types::Value::Text(table_name.to_string())]);
-    conn.query_row(
+    record_query_with_params(
         query,
-        [table_name],
-        |row| row.get::<_, Option<String>>(0),
-    )
-    .optional()
-    .map_err(Error::Sqlite)
-    .map(|value| value.flatten())
+        &[rusqlite::types::Value::Text(table_name.to_string())],
+    );
+    conn.query_row(query, [table_name], |row| row.get::<_, Option<String>>(0))
+        .optional()
+        .map_err(Error::Sqlite)
+        .map(|value| value.flatten())
 }
 
 fn table_columns(conn: &rusqlite::Connection, table_name: &str) -> Result<Vec<ColumnRow>, Error> {
@@ -207,9 +207,7 @@ fn replayable_objects(
 ) -> Result<BTreeMap<String, Vec<ReplaySql>>, Error> {
     let query = "SELECT name, type, tbl_name, sql FROM sqlite_schema WHERE type IN ('index', 'trigger') AND sql IS NOT NULL";
     record_query(query);
-    let mut stmt = conn
-        .prepare(query)
-        .map_err(Error::Sqlite)?;
+    let mut stmt = conn.prepare(query).map_err(Error::Sqlite)?;
 
     let rows = stmt
         .query_map((), |row| {
@@ -231,7 +229,10 @@ fn replayable_objects(
             _ => continue,
         };
         let _ = (name, kind);
-        objects.entry(table_name).or_default().push(ReplaySql { sql });
+        objects
+            .entry(table_name)
+            .or_default()
+            .push(ReplaySql { sql });
     }
 
     Ok(objects)
@@ -240,9 +241,7 @@ fn replayable_objects(
 fn dependency_candidates(conn: &rusqlite::Connection) -> Result<Vec<ReplaySqlWithTable>, Error> {
     let query = "SELECT name, type, tbl_name, sql FROM sqlite_schema WHERE type IN ('view', 'trigger') AND sql IS NOT NULL";
     record_query(query);
-    let mut stmt = conn
-        .prepare(query)
-        .map_err(Error::Sqlite)?;
+    let mut stmt = conn.prepare(query).map_err(Error::Sqlite)?;
 
     let rows = stmt
         .query_map((), |row| {
@@ -278,11 +277,11 @@ fn user_tables(conn: &rusqlite::Connection) -> Result<Vec<String>, Error> {
     let query = "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != ?1";
     record_query_with_params(
         query,
-        &[rusqlite::types::Value::Text(super::types::HISTORY_TABLE.to_string())],
+        &[rusqlite::types::Value::Text(
+            super::types::HISTORY_TABLE.to_string(),
+        )],
     );
-    let mut stmt = conn
-        .prepare(query)
-        .map_err(Error::Sqlite)?;
+    let mut stmt = conn.prepare(query).map_err(Error::Sqlite)?;
     let rows = stmt
         .query_map([super::types::HISTORY_TABLE], |row| row.get::<_, String>(0))
         .map_err(Error::Sqlite)?;

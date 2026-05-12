@@ -12,7 +12,10 @@ pub(crate) struct CreateTable<'a> {
 impl CreateTable<'_> {
     pub(crate) fn to_sql(self) -> String {
         let column_definitions = column_definitions(self.columns);
-        let primary_key = format!("{} {} PRIMARY KEY", self.primary_key.name, self.primary_key.sql_type);
+        let primary_key = format!(
+            "{} {} PRIMARY KEY",
+            self.primary_key.name, self.primary_key.sql_type
+        );
 
         if column_definitions.is_empty() {
             format!(

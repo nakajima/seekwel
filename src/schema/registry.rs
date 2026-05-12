@@ -75,4 +75,3 @@ unsafe fn registry_entries() -> &'static [RegistryEntry] {
     let len = unsafe { stop.offset_from(start) as usize };
     unsafe { std::slice::from_raw_parts(start, len) }
 }
-

@@ -32,7 +32,10 @@ impl SchemaBuilder {
 
     /// Finalizes the desired schema in deterministic order.
     pub fn build(self) -> Result<SchemaDef, Error> {
-        SchemaDef { tables: self.tables }.normalized()
+        SchemaDef {
+            tables: self.tables,
+        }
+        .normalized()
     }
 
     /// Builds a reviewable schema plan against the live database.

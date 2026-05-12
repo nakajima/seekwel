@@ -165,7 +165,7 @@ where
 
         let params = self.plan.params.clone();
         record_query_with_params(&query, &params);
-        match conn.query_all(&query, params_from_iter(params), M::from_row) {
+        match conn.query_all_read(&query, params_from_iter(params), M::from_row) {
             Ok(rows) if rows.is_empty() => {
                 self.done = true;
                 None

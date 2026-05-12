@@ -50,7 +50,9 @@ fn schema_builder_plans_and_applies_safe_and_destructive_changes() -> Result<(),
 
     let created = v1::Person::builder().name("Pat").create()?;
 
-    let blocked_plan = SchemaBuilder::new().model::<required_column::Person>().plan()?;
+    let blocked_plan = SchemaBuilder::new()
+        .model::<required_column::Person>()
+        .plan()?;
     assert!(blocked_plan.is_blocked());
     assert!(matches!(
         blocked_plan.blockers.as_slice(),
@@ -74,10 +76,12 @@ fn schema_builder_plans_and_applies_safe_and_destructive_changes() -> Result<(),
 
     let rebuild_plan = SchemaBuilder::new().model::<v3::Person>().plan()?;
     assert!(rebuild_plan.blockers.is_empty());
-    assert!(rebuild_plan
-        .ops
-        .iter()
-        .any(|op| matches!(op, PlanOp::RebuildTable { table, .. } if table == "person")));
+    assert!(
+        rebuild_plan
+            .ops
+            .iter()
+            .any(|op| matches!(op, PlanOp::RebuildTable { table, .. } if table == "person"))
+    );
     assert!(matches!(
         rebuild_plan.apply(ApplyMode::SafeOnly),
         Err(Error::SchemaBlocked(_))
@@ -89,10 +93,12 @@ fn schema_builder_plans_and_applies_safe_and_destructive_changes() -> Result<(),
 
     let drop_plan = SchemaBuilder::new().plan()?;
     assert!(drop_plan.blockers.is_empty());
-    assert!(drop_plan
-        .ops
-        .iter()
-        .any(|op| matches!(op, PlanOp::DropTable { table } if table.name == "person")));
+    assert!(
+        drop_plan
+            .ops
+            .iter()
+            .any(|op| matches!(op, PlanOp::DropTable { table } if table.name == "person"))
+    );
     drop_plan.apply(ApplyMode::AllowDestructive)?;
 
     let final_plan = SchemaBuilder::new().plan()?;

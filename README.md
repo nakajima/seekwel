@@ -4,20 +4,43 @@ It's a sqlite library for Rust. Batteries included, but they are not replaceable
 
 ## connection
 
-The connection is global. If you don't like globals, too bad. this is the only way to use sqlite in rust so you're plum out of luck.
+The connection manager is global. If you don't like globals, too bad. this is the only way to use sqlite in rust so you're plum out of luck.
 
 ```rs
 use seekwel::connection::Connection;
 
-// Initialize an in-memory db to use globally
+// Initialize an in-memory db to use globally. This uses one SQLite connection.
 Connection::memory()?;
 
-// Or initialize a file db to use globally
+// Or initialize a file db to use globally. This uses WAL plus a small reader pool.
 Connection::file("db.sqlite")?;
 
-// Get the global connection if you want. I'm not sure why you would.
+// Get a lightweight handle if you want. I'm not sure why you would.
 let conn = Connection::get()?;
 ```
+
+File databases use one writer connection and a small pool of read-only connections. Reads can run concurrently with other reads, and in WAL mode they can continue while a write transaction is open. Writes still serialize because SQLite only has one writer.
+
+Transactions are implicit on the current thread:
+
+```rs
+Connection::transaction(|| {
+    let pat = Person::builder().name("Pat").create()?;
+    pat.save()?;
+    assert_eq!(Person::count()?, 1);
+    Ok(())
+})?;
+```
+
+Nested transactions use savepoints. Returning an error rolls the current transaction back; `Connection::rollback()` is a convenience error for intentional rollback.
+
+Async apps can enable the optional `tokio` feature:
+
+```toml
+seekwel = { version = "0.1.15", features = ["serde", "tokio"] }
+```
+
+With that feature, seekwel uses `tokio::task::block_in_place` for database work when called from a multi-threaded Tokio runtime. The API stays synchronous, but Tokio is told that the SQLite section may block.
 
 ## models
 
@@ -53,6 +76,12 @@ let mut person = draft.save()?; // => Person<Persisted>
 
 // Or build + persist in one step.
 let person2 = Person::builder().name("Sam").create()?;
+
+// Find by selected builder fields, then update the row or create it.
+let pat = Person::builder()
+    .name("Pat")
+    .age(Some(123))
+    .create_or_update_by([PersonColumns::Name])?;
 
 // Persisted records can be saved again after local changes, then reloaded.
 person.age = Some(124);

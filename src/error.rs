@@ -7,6 +7,8 @@ use std::fmt;
 pub enum Error {
     /// An error returned by `rusqlite`.
     Sqlite(rusqlite::Error),
+    /// A transaction was intentionally rolled back.
+    Rollback,
     /// The global connection was initialized more than once.
     AlreadyInitialized,
     /// The global connection was used before initialization.
@@ -33,6 +35,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Sqlite(e) => write!(f, "{e}"),
+            Error::Rollback => write!(f, "Transaction rolled back"),
             Error::AlreadyInitialized => write!(f, "Connection already initialized"),
             Error::NotInitialized => write!(f, "Connection not initialized"),
             Error::MissingField(field) => write!(f, "Missing required field: {field}"),

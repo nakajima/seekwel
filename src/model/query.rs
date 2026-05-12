@@ -191,7 +191,7 @@ impl QueryPlan {
             limit,
             self.offset,
         )
-            .to_sql()
+        .to_sql()
     }
 
     pub(super) fn count_query(&self) -> String {
@@ -229,7 +229,7 @@ impl QueryPlan {
             limit,
             offset,
         )
-            .to_sql()
+        .to_sql()
     }
 }
 
@@ -337,7 +337,7 @@ pub trait QueryDsl: Sized {
         let plan = self.into_query_plan()?;
         let query = plan.first_query();
         record_query_with_params(&query, &plan.params);
-        conn.query_optional(
+        conn.query_optional_read(
             &query,
             params_from_iter(plan.params),
             <Self::Model as PersistedModel>::from_row,
@@ -350,7 +350,7 @@ pub trait QueryDsl: Sized {
         let plan = self.into_query_plan()?;
         let query = plan.count_query();
         record_query_with_params(&query, &plan.params);
-        let count = conn.query_row(&query, params_from_iter(plan.params), |row| {
+        let count = conn.query_row_read(&query, params_from_iter(plan.params), |row| {
             row.get::<_, i64>(0)
         })?;
         Ok(count as usize)
@@ -362,7 +362,7 @@ pub trait QueryDsl: Sized {
         let plan = self.into_query_plan()?;
         let query = plan.exists_query();
         record_query_with_params(&query, &plan.params);
-        let value = conn.query_optional(&query, params_from_iter(plan.params), |row| {
+        let value = conn.query_optional_read(&query, params_from_iter(plan.params), |row| {
             row.get::<_, i64>(0)
         })?;
         Ok(value.is_some())
@@ -374,7 +374,7 @@ pub trait QueryDsl: Sized {
         let plan = self.into_query_plan()?;
         let query = plan.all_query();
         record_query_with_params(&query, &plan.params);
-        conn.query_all(
+        conn.query_all_read(
             &query,
             params_from_iter(plan.params),
             <Self::Model as PersistedModel>::from_row,

@@ -75,16 +75,16 @@ fn params_create_and_update_only_allowed_columns() -> Result<(), Error> {
     )?;
     assert_eq!(pet.owner()?.id, person.id);
 
-    let mut manual = ManualPerson::create(
-        ManualPersonParams::new()
-            .key(7)
-            .name("Manual")
-            .allow_all(),
-    )?;
+    let mut manual =
+        ManualPerson::create(ManualPersonParams::new().key(7).name("Manual").allow_all())?;
     assert_eq!(manual.key, 7);
     assert_eq!(manual.name, "Manual");
     assert!(matches!(
-        manual.update(ManualPersonParams::new().key(8).allow([ManualPersonColumns::Key])),
+        manual.update(
+            ManualPersonParams::new()
+                .key(8)
+                .allow([ManualPersonColumns::Key])
+        ),
         Err(seekwel::SaveError::Error(Error::InvalidParams(_)))
     ));
 

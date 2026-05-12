@@ -12,26 +12,17 @@ pub(crate) fn load_latest_target_schema(
         return Ok(None);
     }
 
-    let query = format!(
-        "SELECT target_schema FROM {HISTORY_TABLE} ORDER BY id DESC LIMIT 1"
-    );
+    let query = format!("SELECT target_schema FROM {HISTORY_TABLE} ORDER BY id DESC LIMIT 1");
     record_query(&query);
     let schema = conn
-        .query_row(
-            &query,
-            (),
-            |row| row.get::<_, String>(0),
-        )
+        .query_row(&query, (), |row| row.get::<_, String>(0))
         .optional()
         .map_err(Error::Sqlite)?;
 
-    schema
-        .as_deref()
-        .map(SchemaDef::from_canonical)
-        .transpose()
+    schema.as_deref().map(SchemaDef::from_canonical).transpose()
 }
 
-pub(crate) fn ensure_history_table(tx: &rusqlite::Transaction<'_>) -> Result<(), Error> {
+pub(crate) fn ensure_history_table(conn: &rusqlite::Connection) -> Result<(), Error> {
     let sql = format!(
         "CREATE TABLE IF NOT EXISTS {HISTORY_TABLE} (\
          id INTEGER PRIMARY KEY, \
@@ -43,18 +34,17 @@ pub(crate) fn ensure_history_table(tx: &rusqlite::Transaction<'_>) -> Result<(),
          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
     );
     record_query(&sql);
-    tx.execute_batch(&sql)
-    .map_err(Error::Sqlite)
+    conn.execute_batch(&sql).map_err(Error::Sqlite)
 }
 
 pub(crate) fn record_success(
-    tx: &rusqlite::Transaction<'_>,
+    conn: &rusqlite::Connection,
     plan_id: &str,
     source_fingerprint: &str,
     target_fingerprint: &str,
     target_schema: &SchemaDef,
 ) -> Result<(), Error> {
-    ensure_history_table(tx)?;
+    ensure_history_table(conn)?;
     let sql = format!(
         "INSERT INTO {HISTORY_TABLE} \
          (plan_id, artifact_version, source_fingerprint, target_fingerprint, target_schema) \
@@ -70,7 +60,7 @@ pub(crate) fn record_success(
             rusqlite::types::Value::Text(target_schema.canonical_string()),
         ],
     );
-    tx.execute(
+    conn.execute(
         &sql,
         (
             plan_id,
@@ -86,12 +76,11 @@ pub(crate) fn record_success(
 
 fn history_table_exists(conn: &rusqlite::Connection) -> Result<bool, Error> {
     let query = "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)";
-    record_query_with_params(query, &[rusqlite::types::Value::Text(HISTORY_TABLE.to_string())]);
-    conn.query_row(
+    record_query_with_params(
         query,
-        [HISTORY_TABLE],
-        |row| row.get::<_, i64>(0),
-    )
-    .map(|value| value != 0)
-    .map_err(Error::Sqlite)
+        &[rusqlite::types::Value::Text(HISTORY_TABLE.to_string())],
+    );
+    conn.query_row(query, [HISTORY_TABLE], |row| row.get::<_, i64>(0))
+        .map(|value| value != 0)
+        .map_err(Error::Sqlite)
 }

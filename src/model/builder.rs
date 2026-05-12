@@ -18,6 +18,11 @@ impl<T> Required<T> {
         self.0 = Some(value.into());
     }
 
+    /// Returns the provided field value, if any.
+    pub fn as_ref(&self) -> Option<&T> {
+        self.0.as_ref()
+    }
+
     /// Finishes the field or returns [`Error::MissingField`] if it was never set.
     pub fn finish(self, field: &'static str) -> Result<T, Error> {
         self.0.ok_or_else(|| Error::MissingField(field.to_string()))
@@ -38,6 +43,11 @@ impl<T> Optional<T> {
     /// Stores the field value, including an explicit `None`.
     pub fn set(&mut self, value: Option<T>) {
         self.0 = Some(value);
+    }
+
+    /// Returns the provided field value, if any.
+    pub fn as_ref(&self) -> Option<&Option<T>> {
+        self.0.as_ref()
     }
 
     /// Finishes the field, defaulting to `None` if it was never set.

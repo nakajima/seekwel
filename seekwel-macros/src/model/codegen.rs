@@ -194,6 +194,80 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
     }
 
+    let create_or_update_primary_key_lookup_arm = if primary_key_auto_increment {
+        quote! {
+            #columns_name::#primary_key_variant => {
+                return Err(seekwel::model::CreateOrUpdateError::Error(
+                    seekwel::error::Error::MissingField(#primary_key_name.to_string()),
+                ));
+            }
+        }
+    } else {
+        quote! {
+            #columns_name::#primary_key_variant => {
+                let __seekwel_value = self
+                    .#primary_key_ident
+                    .as_ref()
+                    .cloned()
+                    .ok_or_else(|| seekwel::error::Error::MissingField(#primary_key_name.to_string()))
+                    .map_err(seekwel::model::CreateOrUpdateError::Error)?;
+                __seekwel_query = seekwel::model::QueryDsl::q(
+                    __seekwel_query,
+                    #columns_name::#primary_key_variant,
+                    seekwel::Comparison::Eq(__seekwel_value),
+                );
+            }
+        }
+    };
+    let create_or_update_lookup_arms: Vec<_> = stored_fields
+        .iter()
+        .map(|field| {
+            let field_name = &field.ident;
+            let field_name_str = field.field_name.as_str();
+            let column_variant = &field.query_variant;
+
+            if field.is_optional {
+                quote! {
+                    #columns_name::#column_variant => {
+                        let __seekwel_value = self.#field_name.as_ref().cloned().unwrap_or(None);
+                        __seekwel_query = seekwel::model::QueryDsl::q(
+                            __seekwel_query,
+                            #columns_name::#column_variant,
+                            seekwel::Comparison::Eq(__seekwel_value),
+                        );
+                    }
+                }
+            } else {
+                quote! {
+                    #columns_name::#column_variant => {
+                        let __seekwel_value = self
+                            .#field_name
+                            .as_ref()
+                            .cloned()
+                            .ok_or_else(|| seekwel::error::Error::MissingField(#field_name_str.to_string()))
+                            .map_err(seekwel::model::CreateOrUpdateError::Error)?;
+                        __seekwel_query = seekwel::model::QueryDsl::q(
+                            __seekwel_query,
+                            #columns_name::#column_variant,
+                            seekwel::Comparison::Eq(__seekwel_value),
+                        );
+                    }
+                }
+            }
+        })
+        .collect();
+    let create_or_update_assignments: Vec<_> = stored_fields
+        .iter()
+        .map(|field| {
+            let field_name = &field.ident;
+            quote! {
+                if let Some(__seekwel_value) = self.#field_name.as_ref().cloned() {
+                    __seekwel_record.#field_name = __seekwel_value;
+                }
+            }
+        })
+        .collect();
+
     let primary_key_params_field = if primary_key_auto_increment {
         quote! {}
     } else {
@@ -881,6 +955,71 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 <#name<seekwel::NewRecord> as seekwel::model::NewModel>::save(
                     self.build().map_err(seekwel::model::SaveError::Error)?,
                 )
+            }
+
+            #[doc = "Finds the first record matching the listed columns, then updates it from this builder or creates it."]
+            #[doc = "This is a find-then-save helper, not a SQLite `ON CONFLICT` upsert."]
+            pub fn create_or_update_by<I>(
+                self,
+                columns: I,
+            ) -> Result<
+                #name<seekwel::Persisted>,
+                seekwel::model::CreateOrUpdateError<
+                    <#name<seekwel::NewRecord> as seekwel::model::NewModel>::Invalid,
+                    <#name<seekwel::Persisted> as seekwel::model::PersistedModel>::Invalid,
+                >,
+            >
+            where
+                I: IntoIterator<Item = #columns_name>,
+            {
+                let mut __seekwel_query =
+                    <#name<seekwel::Persisted> as seekwel::model::ModelQueryDsl>::query();
+                let mut __seekwel_has_lookup_column = false;
+
+                for __seekwel_column in columns {
+                    __seekwel_has_lookup_column = true;
+                    match __seekwel_column {
+                        #create_or_update_primary_key_lookup_arm
+                        #(#create_or_update_lookup_arms)*
+                    }
+                }
+
+                if !__seekwel_has_lookup_column {
+                    return Err(seekwel::model::CreateOrUpdateError::Error(
+                        seekwel::error::Error::InvalidQuery(
+                            "create_or_update_by requires at least one lookup column".to_string(),
+                        ),
+                    ));
+                }
+
+                match seekwel::model::QueryDsl::first(__seekwel_query)
+                    .map_err(seekwel::model::CreateOrUpdateError::Error)?
+                {
+                    Some(mut __seekwel_record) => {
+                        #(#create_or_update_assignments)*
+
+                        match <#name<seekwel::Persisted> as seekwel::model::PersistedModel>::save(
+                            &__seekwel_record,
+                        ) {
+                            Ok(()) => Ok(__seekwel_record),
+                            Err(seekwel::model::SaveError::Invalid(__seekwel_invalid)) => Err(
+                                seekwel::model::CreateOrUpdateError::InvalidPersisted(__seekwel_invalid),
+                            ),
+                            Err(seekwel::model::SaveError::Error(__seekwel_error)) => {
+                                Err(seekwel::model::CreateOrUpdateError::Error(__seekwel_error))
+                            }
+                        }
+                    }
+                    None => match self.create() {
+                        Ok(__seekwel_record) => Ok(__seekwel_record),
+                        Err(seekwel::model::SaveError::Invalid(__seekwel_invalid)) => {
+                            Err(seekwel::model::CreateOrUpdateError::InvalidNew(__seekwel_invalid))
+                        }
+                        Err(seekwel::model::SaveError::Error(__seekwel_error)) => {
+                            Err(seekwel::model::CreateOrUpdateError::Error(__seekwel_error))
+                        }
+                    },
+                }
             }
         }
     }

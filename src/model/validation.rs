@@ -183,6 +183,16 @@ pub enum SaveError<M> {
     Error(Error),
 }
 
+/// Error returned by builder create-or-update operations.
+pub enum CreateOrUpdateError<N, P> {
+    /// The new model failed validation while creating a missing record.
+    InvalidNew(N),
+    /// The persisted model failed validation while updating an existing record.
+    InvalidPersisted(P),
+    /// A non-validation error occurred while finding, creating, or updating.
+    Error(Error),
+}
+
 impl<M> SaveError<M> {
     /// Returns whether this is a validation error.
     pub fn is_invalid(&self) -> bool {
@@ -240,3 +250,64 @@ impl<M> fmt::Display for SaveError<M> {
 }
 
 impl<M> std::error::Error for SaveError<M> {}
+
+impl<N, P> CreateOrUpdateError<N, P> {
+    /// Returns whether this is a validation error.
+    pub fn is_invalid(&self) -> bool {
+        matches!(self, Self::InvalidNew(_) | Self::InvalidPersisted(_))
+    }
+
+    /// Returns the invalid new model by reference, if creation failed validation.
+    pub fn invalid_new(&self) -> Option<&N> {
+        match self {
+            Self::InvalidNew(model) => Some(model),
+            Self::InvalidPersisted(_) | Self::Error(_) => None,
+        }
+    }
+
+    /// Returns the invalid persisted model by reference, if update failed validation.
+    pub fn invalid_persisted(&self) -> Option<&P> {
+        match self {
+            Self::InvalidPersisted(model) => Some(model),
+            Self::InvalidNew(_) | Self::Error(_) => None,
+        }
+    }
+}
+
+impl<N, P> From<Error> for CreateOrUpdateError<N, P> {
+    fn from(error: Error) -> Self {
+        Self::Error(error)
+    }
+}
+
+impl<N, P> From<CreateOrUpdateError<N, P>> for Error {
+    fn from(error: CreateOrUpdateError<N, P>) -> Self {
+        match error {
+            CreateOrUpdateError::InvalidNew(_) | CreateOrUpdateError::InvalidPersisted(_) => {
+                Error::InvalidModel("validation failed".to_string())
+            }
+            CreateOrUpdateError::Error(error) => error,
+        }
+    }
+}
+
+impl<N, P> fmt::Debug for CreateOrUpdateError<N, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidNew(_) => f.write_str("InvalidNew(..)"),
+            Self::InvalidPersisted(_) => f.write_str("InvalidPersisted(..)"),
+            Self::Error(error) => f.debug_tuple("Error").field(error).finish(),
+        }
+    }
+}
+
+impl<N, P> fmt::Display for CreateOrUpdateError<N, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidNew(_) | Self::InvalidPersisted(_) => f.write_str("validation failed"),
+            Self::Error(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl<N, P> std::error::Error for CreateOrUpdateError<N, P> {}

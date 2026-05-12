@@ -37,7 +37,11 @@ impl SchemaDef {
                     )));
                 }
             }
-            if table.columns.iter().any(|column| column.name == table.primary_key.name) {
+            if table
+                .columns
+                .iter()
+                .any(|column| column.name == table.primary_key.name)
+            {
                 return Err(Error::InvalidSchema(format!(
                     "table `{}` duplicates primary key column `{}` in managed columns",
                     table.name, table.primary_key.name
@@ -85,9 +89,9 @@ impl SchemaDef {
 
             match kind {
                 "table" => {
-                    let name = parts
-                        .next()
-                        .ok_or_else(|| Error::InvalidSchema("history row is missing table name".into()))?;
+                    let name = parts.next().ok_or_else(|| {
+                        Error::InvalidSchema("history row is missing table name".into())
+                    })?;
                     let primary_key_name = parts.next().unwrap_or("id");
                     let primary_key_sql_type = parts.next().unwrap_or("INTEGER");
                     if parts.next().is_some() {
@@ -123,7 +127,8 @@ impl SchemaDef {
                         )));
                     }
 
-                    let Some(table) = tables.iter_mut().find(|table| table.name == table_name) else {
+                    let Some(table) = tables.iter_mut().find(|table| table.name == table_name)
+                    else {
                         return Err(Error::InvalidSchema(format!(
                             "history column row references unknown table `{table_name}`"
                         )));

@@ -81,6 +81,8 @@ impl Parse for ModelArgs {
     }
 }
 
+// IMPORTANT: Avoid adding code here if you at all can. We want to macro to be responsible for generating
+// metadata that can be *consumed* by the main lib, instead of reimplementing behavior for every model in here.
 pub(crate) fn expand_model_attribute(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ModelArgs);
     let mut item = parse_macro_input!(item as ItemStruct);

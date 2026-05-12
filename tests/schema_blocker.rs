@@ -29,9 +29,9 @@ fn schema_plan_blocks_rebuild_when_actual_table_has_foreign_keys() -> Result<(),
         "rebuild that drops parent_id should be blocked by the existing FK",
     );
     assert!(
-        plan.blockers
-            .iter()
-            .any(|blocker| matches!(blocker, PlanBlocker::RealForeignKeys { table } if table == "thing")),
+        plan.blockers.iter().any(
+            |blocker| matches!(blocker, PlanBlocker::RealForeignKeys { table } if table == "thing")
+        ),
         "expected RealForeignKeys blocker for `thing`, got: {:?}",
         plan.blockers,
     );

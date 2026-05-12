@@ -57,12 +57,14 @@ pub mod __private {
     pub use serde;
 }
 
+pub use error::Error;
+
 pub use model::{
-    BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, Errors, HasMany,
-    Invalid, InvalidModel, Lazy, LazyIter, LazyQuery, LazyTryIter, Model, ModelQueryDsl,
-    ModelRecord, NewModel, NewRecord, NoValidation, Order, Params, ParamsModel, ParamsModelDsl,
-    Persisted, PersistedModel, PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl, SaveError,
-    SqlField, ValidationError, Validator,
+    BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, CreateOrUpdateError,
+    Errors, HasMany, Invalid, InvalidModel, Lazy, LazyIter, LazyQuery, LazyTryIter, Model,
+    ModelQueryDsl, ModelRecord, NewModel, NewRecord, NoValidation, Order, Params, ParamsModel,
+    ParamsModelDsl, Persisted, PersistedModel, PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl,
+    SaveError, SqlField, ValidationError, Validator,
 };
 
 /// Derive macro that implements seekwel's model traits for a typestate model struct.

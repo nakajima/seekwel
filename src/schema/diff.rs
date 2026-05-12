@@ -203,15 +203,15 @@ fn plan_op_sort_key(op: &PlanOp) -> (u8, &str, &str) {
 fn blocker_sort_key(blocker: &PlanBlocker) -> (u8, &str, &str) {
     match blocker {
         PlanBlocker::RegistryUncertain(message) => (0, message.as_str(), ""),
-        PlanBlocker::RequiredColumnAddition { table, column } => (1, table.as_str(), column.as_str()),
+        PlanBlocker::RequiredColumnAddition { table, column } => {
+            (1, table.as_str(), column.as_str())
+        }
         PlanBlocker::UnsupportedInlineFeature { table, feature } => {
             (2, table.as_str(), feature.as_str())
         }
         PlanBlocker::RealForeignKeys { table } => (3, table.as_str(), ""),
         PlanBlocker::DependentView { table, view } => (4, table.as_str(), view.as_str()),
-        PlanBlocker::DependentTrigger { table, trigger } => {
-            (5, table.as_str(), trigger.as_str())
-        }
+        PlanBlocker::DependentTrigger { table, trigger } => (5, table.as_str(), trigger.as_str()),
         PlanBlocker::Uncertain(message) => (6, message.as_str(), ""),
     }
 }

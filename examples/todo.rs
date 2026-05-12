@@ -21,7 +21,9 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
@@ -60,7 +62,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("add") => {
             let title = args.collect::<Vec<_>>().join(" ");
             if title.trim().is_empty() {
-                return Err(io::Error::other("usage: cargo run --example todo -- add <title>").into());
+                return Err(
+                    io::Error::other("usage: cargo run --example todo -- add <title>").into(),
+                );
             }
             add_todo(&title)?;
             list_todos()?;
@@ -131,7 +135,11 @@ fn print_plan(plan: &Plan) {
         match op {
             PlanOp::CreateTable { table } => println!("  - create table `{}`", table.name),
             PlanOp::AddColumn { table, column } => {
-                let nullable = if column.nullable { "nullable" } else { "not null" };
+                let nullable = if column.nullable {
+                    "nullable"
+                } else {
+                    "not null"
+                };
                 println!(
                     "  - add column `{}.{}` {} {}",
                     table, column.name, column.sql_type, nullable
@@ -270,7 +278,11 @@ fn run_tui_loop(terminal: &mut TodoTerminal) -> Result<(), Box<dyn std::error::E
 fn draw_tui(frame: &mut Frame<'_>, app: &TodoApp) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(7)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(8),
+            Constraint::Length(7),
+        ])
         .split(frame.area());
 
     let header = Paragraph::new(Text::from(vec![
@@ -291,7 +303,9 @@ fn draw_tui(frame: &mut Frame<'_>, app: &TodoApp) {
         .split(layout[1]);
 
     let items = if app.todos.is_empty() {
-        vec![ListItem::new("no todos yet — press 'a' to add or 's' to seed")]
+        vec![ListItem::new(
+            "no todos yet — press 'a' to add or 's' to seed",
+        )]
     } else {
         app.todos
             .iter()
@@ -382,7 +396,11 @@ fn restore_terminal(terminal: &mut TodoTerminal) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, area: ratatui::layout::Rect) -> ratatui::layout::Rect {
+fn centered_rect(
+    percent_x: u16,
+    percent_y: u16,
+    area: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -474,7 +492,8 @@ impl TodoApp {
     }
 
     fn selected_todo(&self) -> Option<&Todo> {
-        self.selected_index().and_then(|index| self.todos.get(index))
+        self.selected_index()
+            .and_then(|index| self.todos.get(index))
     }
 
     fn selected_id(&self) -> Option<u64> {
@@ -503,10 +522,7 @@ fn add_todo(title: &str) -> Result<(), Box<dyn std::error::Error>> {
     add_todo_with_notes(title, None)
 }
 
-fn add_todo_with_notes(
-    title: &str,
-    notes: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn add_todo_with_notes(title: &str, notes: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let todo = Todo::builder()
         .title(title.to_string())
         .done(false)
