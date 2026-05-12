@@ -1,6 +1,6 @@
 [package]
 name = "seekwel-macros"
-version = "0.1.16"
+version = "0.1.17"
 edition = "2024"
 description = "proc-macros for seekwel"
 license = "BSD-3-Clause"
