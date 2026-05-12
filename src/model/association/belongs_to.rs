@@ -1,6 +1,6 @@
-use std::cell::RefCell;
 use std::fmt;
 use std::marker::PhantomData;
+use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::types::Value;
 
@@ -44,7 +44,7 @@ use crate::model::{PersistedModel, SqlField};
 /// ```
 pub struct BelongsTo<T> {
     id: u64,
-    cached: RefCell<Option<T>>,
+    cached: Mutex<Option<T>>,
     __seekwel_target: PhantomData<T>,
 }
 
@@ -53,9 +53,15 @@ impl<T> BelongsTo<T> {
     pub fn new(id: u64) -> Self {
         Self {
             id,
-            cached: RefCell::new(None),
+            cached: Mutex::new(None),
             __seekwel_target: PhantomData,
         }
+    }
+
+    fn cached(&self) -> MutexGuard<'_, Option<T>> {
+        self.cached
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Returns the related model's primary key.
@@ -65,7 +71,7 @@ impl<T> BelongsTo<T> {
 
     /// Clears any cached parent model for this association.
     pub fn clear_cache(&self) {
-        self.cached.borrow_mut().take();
+        self.cached().take();
     }
 
     /// Loads the related persisted model, caching it on first access.
@@ -73,12 +79,15 @@ impl<T> BelongsTo<T> {
     where
         T: PersistedModel + Clone,
     {
-        if let Some(cached) = self.cached.borrow().as_ref() {
-            return Ok(cached.clone());
+        {
+            let cached = self.cached();
+            if let Some(model) = cached.as_ref() {
+                return Ok(model.clone());
+            }
         }
 
         let model = T::find(self.id)?;
-        *self.cached.borrow_mut() = Some(model.clone());
+        *self.cached() = Some(model.clone());
         Ok(model)
     }
 }
@@ -90,7 +99,7 @@ where
     pub(crate) fn with_cached(model: T) -> Self {
         Self {
             id: model.id(),
-            cached: RefCell::new(Some(model)),
+            cached: Mutex::new(Some(model)),
             __seekwel_target: PhantomData,
         }
     }

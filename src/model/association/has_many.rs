@@ -1,5 +1,5 @@
-use std::cell::RefCell;
 use std::fmt;
+use std::sync::{Mutex, MutexGuard};
 
 use crate::error::Error;
 use crate::model::{Model, PersistedModel};
@@ -21,7 +21,7 @@ pub trait HasManyAssociation<const ASSOC: u8>: PersistedModel + Clone + Sized {
 /// child rows, and can append new children through the generated child builder.
 pub struct HasMany<Child: Model, const ASSOC: u8> {
     parent_id: Option<u64>,
-    cached: RefCell<Option<Vec<Child>>>,
+    cached: Mutex<Option<Vec<Child>>>,
 }
 
 impl<Child: Model, const ASSOC: u8> HasMany<Child, ASSOC> {
@@ -29,7 +29,7 @@ impl<Child: Model, const ASSOC: u8> HasMany<Child, ASSOC> {
     pub fn new_unbound() -> Self {
         Self {
             parent_id: None,
-            cached: RefCell::new(None),
+            cached: Mutex::new(None),
         }
     }
 
@@ -37,7 +37,7 @@ impl<Child: Model, const ASSOC: u8> HasMany<Child, ASSOC> {
     pub fn new_bound(parent_id: u64) -> Self {
         Self {
             parent_id: Some(parent_id),
-            cached: RefCell::new(None),
+            cached: Mutex::new(None),
         }
     }
 
@@ -48,7 +48,13 @@ impl<Child: Model, const ASSOC: u8> HasMany<Child, ASSOC> {
 
     /// Clears any cached child records for this association.
     pub fn clear_cache(&self) {
-        self.cached.borrow_mut().take();
+        self.cached().take();
+    }
+
+    fn cached(&self) -> MutexGuard<'_, Option<Vec<Child>>> {
+        self.cached
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn require_parent_id(&self) -> Result<u64, Error> {
@@ -66,12 +72,15 @@ where
 {
     /// Loads all child records for the bound parent, caching them on first access.
     pub fn load(&self) -> Result<Vec<Child>, Error> {
-        if let Some(cached) = self.cached.borrow().as_ref() {
-            return Ok(cached.clone());
+        {
+            let cached = self.cached();
+            if let Some(children) = cached.as_ref() {
+                return Ok(children.clone());
+            }
         }
 
         let children = Child::load_for_parent(self.require_parent_id()?)?;
-        *self.cached.borrow_mut() = Some(children.clone());
+        *self.cached() = Some(children.clone());
         Ok(children)
     }
 
@@ -82,8 +91,9 @@ where
     ) -> Result<Child, Error> {
         let child = Child::append_for_parent(self.require_parent_id()?, builder)?;
 
-        if let Some(cached) = self.cached.borrow_mut().as_mut() {
-            cached.push(child.clone());
+        let mut cached = self.cached();
+        if let Some(children) = cached.as_mut() {
+            children.push(child.clone());
         }
 
         Ok(child)

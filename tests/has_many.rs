@@ -21,6 +21,18 @@ struct Pet {
 
 static HAS_MANY_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+#[test]
+fn association_save_errors_are_thread_safe_errors() {
+    fn assert_thread_safe_error<T: std::error::Error + Send + Sync + 'static>() {}
+
+    assert_thread_safe_error::<
+        seekwel::SaveError<Person<seekwel::Invalid<seekwel::NewRecord, PersonColumns>>>,
+    >();
+    assert_thread_safe_error::<
+        seekwel::SaveError<Person<seekwel::Invalid<seekwel::Persisted, PersonColumns>>>,
+    >();
+}
+
 fn with_associations(test: impl FnOnce() -> Result<(), Error>) -> Result<(), Error> {
     let _guard = HAS_MANY_TEST_LOCK
         .get_or_init(|| Mutex::new(()))
