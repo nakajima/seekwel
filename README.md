@@ -304,15 +304,15 @@ let pets = Pet::q(PetColumns::OwnerId, seekwel::Comparison::Eq(pat.id)).all()?;
 assert_eq!(pets.len(), 1);
 ```
 
+Use `#[key = custom_id]` on a `BelongsTo` field to override the stored foreign-key column name.
+
 > [!WARNING]  
 > `BelongsTo<Option<T>>` is not supported; use `Option<BelongsTo<T>>` instead.
 
 ### has_many
 
 Basically the same as above, except we add a `HasMany<Pet>` field.
-
-> [!NOTE]
-> `HasMany` uses a const-generic association key, so the field type is written as `HasMany<Pet, { PetColumns::OWNER_ID }>`.
+Annotate it with the child foreign-key column. The macro validates that the child model has a matching `BelongsTo` field for this parent.
 
 ```rs
 use seekwel::{HasMany, connection::Connection, prelude::*};
@@ -321,7 +321,8 @@ use seekwel::{HasMany, connection::Connection, prelude::*};
 struct Person {
     id: u64,
     name: FTS<String>,
-    pets: HasMany<Pet, { PetColumns::OWNER_ID }> // Validates that Pet has an `owner: BelongsTo<Person>` field
+    #[key = owner_id]
+    pets: HasMany<Pet>,
 }
 Connection::memory()?;
 Person::create_table()?;

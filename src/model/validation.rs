@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::error::Error;
 
-use super::{Column, Model};
+use super::{Column, Model, ModelRecord};
 
 /// A single validation error attached to either a column or the model as a whole.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,12 +154,9 @@ impl<S, C> Invalid<S, C> {
 }
 
 /// Behavior exposed by generated invalid model values.
-pub trait InvalidModel: Model {
+pub trait InvalidModel: ModelRecord {
     /// The model state before validation failed.
     type PreviousState;
-
-    /// Returns validation errors.
-    fn errors(&self) -> &Errors<Self::Column>;
 }
 
 /// A validation hook used by generated model implementations.

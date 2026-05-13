@@ -4,7 +4,7 @@
 
 use quote::{format_ident, quote};
 
-use super::ir::{ModelFieldSpec, ModelSpec};
+use super::ir::{HasManyFieldSpec, ModelFieldSpec, ModelSpec};
 
 pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     let name = &spec.name;
@@ -45,16 +45,6 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             #[doc = concat!("The `", #column_name, "` column.")]
         }
     });
-    let association_key_consts: Vec<_> = stored_fields
-        .iter()
-        .map(|field| &field.association_key_const)
-        .collect();
-    let association_key_docs = column_names.iter().map(|column_name| {
-        quote! {
-            #[doc = concat!("Const-generic association key for the `", #column_name, "` column.")]
-        }
-    });
-    let association_key_values = (0..stored_fields.len()).map(|index| index as u8);
     let column_defs: Vec<_> = stored_fields
         .iter()
         .map(|field| {
@@ -84,8 +74,12 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     });
     let from_row_has_many_fields = has_many_fields.iter().map(|field| {
         let field_name = &field.ident;
+        let handlers = has_many_handlers(field);
         quote! {
-            #field_name: seekwel::HasMany::new_bound(__seekwel_association_id)
+            #field_name: seekwel::HasMany::new_bound_with_handlers(
+                __seekwel_association_id,
+                #handlers,
+            )
         }
     });
 
@@ -427,7 +421,10 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             }
             ModelFieldSpec::HasMany(field) => {
                 let field_name = &field.ident;
-                quote! { #field_name: seekwel::HasMany::new_unbound() }
+                let handlers = has_many_handlers(field);
+                quote! {
+                    #field_name: seekwel::HasMany::new_unbound_with_handlers(#handlers)
+                }
             }
         })
         .collect();
@@ -439,7 +436,13 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
         ModelFieldSpec::HasMany(field) => {
             let field_name = &field.ident;
-            quote! { #field_name: seekwel::HasMany::new_bound(__seekwel_association_id) }
+            let handlers = has_many_handlers(field);
+            quote! {
+                #field_name: seekwel::HasMany::new_bound_with_handlers(
+                    __seekwel_association_id,
+                    #handlers,
+                )
+            }
         }
     });
 
@@ -500,13 +503,9 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         let field_name = &field.ident;
         let field_name_str = field.field_name.as_str();
         let child_ty = &field.child_ty;
-        let association_key_path = &field.association_key_path;
         quote! {
             #[doc = concat!("Loads the `", #field_name_str, "` association.")]
-            pub fn #field_name(&self) -> Result<Vec<#child_ty>, seekwel::error::Error>
-            where
-                #child_ty: seekwel::model::HasManyAssociation<{ #association_key_path }, Parent = #name<seekwel::Persisted>>,
-            {
+            pub fn #field_name(&self) -> Result<Vec<#child_ty>, seekwel::error::Error> {
                 self.#field_name.load()
             }
         }
@@ -514,20 +513,26 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
 
     let has_many_validations = has_many_fields.iter().map(|field| {
         let child_ty = &field.child_ty;
-        let association_key_path = &field.association_key_path;
+        let handlers = has_many_handlers(field);
         quote! {
             const _: () = {
-                struct AssertHasMany
-                where
-                    #child_ty: seekwel::model::HasManyAssociation<{ #association_key_path }, Parent = #name<seekwel::Persisted>>;
+                fn assert_has_many() {
+                    let _: seekwel::model::HasManyHandlers<#child_ty, #name<seekwel::Persisted>> = #handlers;
+                }
             };
         }
     });
 
-    let has_many_association_impls = stored_fields.iter().filter_map(|field| {
+    let has_many_child_impl = quote! {
+        impl seekwel::model::HasManyChild for #name<seekwel::Persisted> {
+            type Builder = #builder_name;
+        }
+    };
+
+    let has_many_handler_methods = stored_fields.iter().filter_map(|field| {
         let parent = field.association_target.as_ref()?;
         let query_variant = &field.query_variant;
-        let association_key_const = &field.association_key_const;
+        let handler = &field.association_handler;
         let setter = &field.ident;
         let append_call = if field.is_optional {
             quote! { Ok(builder.#setter(Some(parent_id)).create()?) }
@@ -536,25 +541,21 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         };
 
         Some(quote! {
-            impl seekwel::model::HasManyAssociation<{ #columns_name::#association_key_const }> for #name<seekwel::Persisted> {
-                type Parent = #parent;
-                type Builder = #builder_name;
-
-                fn load_for_parent(parent_id: u64) -> Result<Vec<Self>, seekwel::error::Error> {
-                    <seekwel::model::Query<Self> as seekwel::model::QueryDsl>::all(
-                        seekwel::model::Query::new(
-                            #columns_name::#query_variant,
-                            seekwel::Comparison::Eq(parent_id),
+            #[doc(hidden)]
+            pub fn #handler() -> seekwel::model::HasManyHandlers<Self, #parent> {
+                seekwel::model::HasManyHandlers::<Self, #parent>::new(
+                    |parent_id: u64| -> Result<Vec<Self>, seekwel::error::Error> {
+                        <seekwel::model::Query<Self> as seekwel::model::QueryDsl>::all(
+                            seekwel::model::Query::new(
+                                #columns_name::#query_variant,
+                                seekwel::Comparison::Eq(parent_id),
+                            )
                         )
-                    )
-                }
-
-                fn append_for_parent(
-                    parent_id: u64,
-                    builder: Self::Builder,
-                ) -> Result<Self, seekwel::error::Error> {
-                    #append_call
-                }
+                    },
+                    |parent_id: u64, builder: <Self as seekwel::model::HasManyChild>::Builder| -> Result<Self, seekwel::error::Error> {
+                        #append_call
+                    },
+                )
             }
         })
     });
@@ -613,9 +614,6 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
 
         impl #columns_name {
-            #(#association_key_docs
-            pub const #association_key_consts: u8 = #association_key_values;)*
-
             #[doc = "Returns an ascending `ORDER BY` clause for this column."]
             pub fn asc(self) -> seekwel::Order {
                 seekwel::Order::asc(self)
@@ -702,7 +700,7 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
 
         #(#has_many_validations)*
-        #(#has_many_association_impls)*
+        #has_many_child_impl
 
         impl #impl_generics seekwel::model::Model for #name #ty_generics #where_clause {
             type Column = #columns_name;
@@ -746,6 +744,12 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             fn persisted_primary_key_value(&self) -> Option<rusqlite::types::Value> {
                 None
             }
+
+            fn errors(&self) -> &seekwel::Errors<Self::Column> {
+                static EMPTY_ERRORS: std::sync::OnceLock<seekwel::Errors<#columns_name>> =
+                    std::sync::OnceLock::new();
+                EMPTY_ERRORS.get_or_init(seekwel::Errors::new)
+            }
         }
 
         impl seekwel::model::ModelRecord for #name<seekwel::Persisted> {
@@ -763,6 +767,12 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                     &self.#primary_key_ident,
                 ))
             }
+
+            fn errors(&self) -> &seekwel::Errors<Self::Column> {
+                static EMPTY_ERRORS: std::sync::OnceLock<seekwel::Errors<#columns_name>> =
+                    std::sync::OnceLock::new();
+                EMPTY_ERRORS.get_or_init(seekwel::Errors::new)
+            }
         }
 
         impl seekwel::model::ModelRecord for #name<seekwel::Invalid<seekwel::NewRecord, #columns_name>> {
@@ -772,6 +782,10 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
 
             fn persisted_primary_key_value(&self) -> Option<rusqlite::types::Value> {
                 None
+            }
+
+            fn errors(&self) -> &seekwel::Errors<Self::Column> {
+                self.#state_field_name.errors()
             }
         }
 
@@ -789,6 +803,10 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 Some(<#primary_key_ty as seekwel::model::SqlField>::to_sql_value(
                     &self.#primary_key_ident,
                 ))
+            }
+
+            fn errors(&self) -> &seekwel::Errors<Self::Column> {
+                self.#state_field_name.errors()
             }
         }
 
@@ -865,12 +883,12 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             }
         }
 
-        impl<S> seekwel::model::InvalidModel for #name<seekwel::Invalid<S, #columns_name>> {
-            type PreviousState = S;
+        impl seekwel::model::InvalidModel for #name<seekwel::Invalid<seekwel::NewRecord, #columns_name>> {
+            type PreviousState = seekwel::NewRecord;
+        }
 
-            fn errors(&self) -> &seekwel::Errors<Self::Column> {
-                self.#state_field_name.errors()
-            }
+        impl seekwel::model::InvalidModel for #name<seekwel::Invalid<seekwel::Persisted, #columns_name>> {
+            type PreviousState = seekwel::Persisted;
         }
 
         impl seekwel::model::params::ParamsModel for #name<seekwel::Persisted> {
@@ -915,6 +933,8 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
 
         impl #name<seekwel::Persisted> {
+            #(#has_many_handler_methods)*
+
             #[doc = concat!("Creates a builder for [`", stringify!(#name), "<seekwel::NewRecord>`].")]
             pub fn builder() -> #builder_name {
                 #builder_name {
@@ -1022,6 +1042,15 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 }
             }
         }
+    }
+}
+
+fn has_many_handlers(field: &HasManyFieldSpec) -> proc_macro2::TokenStream {
+    let child_ty = &field.child_ty;
+    let association_handler = &field.association_handler;
+
+    quote! {
+        <#child_ty>::#association_handler()
     }
 }
 

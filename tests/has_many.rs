@@ -9,13 +9,15 @@ use seekwel::{BelongsTo, Comparison, HasMany};
 struct Person {
     id: u64,
     name: String,
-    pets: HasMany<Pet, { PetColumns::OWNER_ID }>,
+    #[key = parent_id]
+    pets: HasMany<Pet>,
 }
 
 #[seekwel::model]
 struct Pet {
     id: u64,
     name: String,
+    #[key = parent_id]
     owner: BelongsTo<Person>,
 }
 
@@ -70,7 +72,7 @@ fn has_many_loads_appends_and_queries_children() -> Result<(), Error> {
         assert_eq!(pets[0].owner()?.id, owner.id);
         assert_eq!(pets[1].owner()?.id, owner.id);
 
-        let from_query = Pet::q(PetColumns::OwnerId, Comparison::Eq(owner.id)).all()?;
+        let from_query = Pet::q(PetColumns::ParentId, Comparison::Eq(owner.id)).all()?;
         assert_eq!(from_query.len(), 2);
 
         let found_owner = Person::find(owner.id)?;

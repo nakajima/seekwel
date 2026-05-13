@@ -76,6 +76,8 @@ pub use seekwel_macros::model;
 pub mod prelude {
     /// Accessors for invalid model values returned by validation failures.
     pub use crate::InvalidModel;
+    /// Record helpers like `.errors()`, `.is_persisted()`, and `.is_new_record()`.
+    pub use crate::ModelRecord;
     /// Model-level query entrypoints like `Person::all()` and `Person::lazy()`.
     pub use crate::ModelQueryDsl;
     /// New-record operations like `.save()`.

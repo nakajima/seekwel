@@ -16,6 +16,7 @@ struct Person {
 struct Pet {
     id: u64,
     name: String,
+    #[key = human_id]
     owner: BelongsTo<Person>,
     sitter: Option<BelongsTo<Person>>,
 }
@@ -71,7 +72,7 @@ fn belongs_to_round_trips_loads_and_queries_by_raw_fk() -> Result<(), Error> {
         );
         assert_eq!(found.owner()?.id, pat.id);
 
-        let owned_by_pat = Pet::q(PetColumns::OwnerId, Comparison::Eq(pat.id)).all()?;
+        let owned_by_pat = Pet::q(PetColumns::HumanId, Comparison::Eq(pat.id)).all()?;
         assert_eq!(owned_by_pat.len(), 1);
         assert_eq!(owned_by_pat[0].id, pet.id);
 

@@ -9,7 +9,8 @@ struct Person {
 #[seekwel::model]
 struct Shelter {
     id: u64,
-    pets: HasMany<Pet, { PetColumns::OWNER_ID }>,
+    #[key = owner_id]
+    pets: HasMany<Pet>,
 }
 
 #[seekwel::model]

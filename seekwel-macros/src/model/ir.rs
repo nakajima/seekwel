@@ -51,7 +51,7 @@ pub(crate) struct StoredFieldSpec {
     pub(crate) field_name: String,
     pub(crate) storage_column_name: String,
     pub(crate) query_variant: Ident,
-    pub(crate) association_key_const: Ident,
+    pub(crate) association_handler: Ident,
     pub(crate) is_optional: bool,
     pub(crate) optional_inner_ty: Option<Type>,
     pub(crate) association_target: Option<Type>,
@@ -61,5 +61,5 @@ pub(crate) struct HasManyFieldSpec {
     pub(crate) ident: Ident,
     pub(crate) field_name: String,
     pub(crate) child_ty: Type,
-    pub(crate) association_key_path: Path,
+    pub(crate) association_handler: Ident,
 }

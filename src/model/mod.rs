@@ -19,9 +19,9 @@ mod query;
 mod sql_field;
 mod validation;
 
-#[doc(hidden)]
-pub use association::HasManyAssociation;
 pub use association::{BelongsTo, HasMany};
+#[doc(hidden)]
+pub use association::{HasManyChild, HasManyHandlers};
 pub use comparison::{Comparison, ComparisonOperand};
 pub use params::{Params, ParamsModel, ParamsModelDsl};
 pub use query::{
@@ -205,6 +205,9 @@ pub trait ModelRecord: Model + Sized {
 
     /// Returns this record's persisted primary-key value, or `None` for unsaved records.
     fn persisted_primary_key_value(&self) -> Option<Value>;
+
+    /// Returns validation errors for this record.
+    fn errors(&self) -> &Errors<Self::Column>;
 
     /// Returns whether this record has already been persisted.
     fn is_persisted(&self) -> bool {

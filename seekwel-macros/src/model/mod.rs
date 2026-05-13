@@ -6,7 +6,8 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{
-    Field, Fields, ItemStruct, LitBool, LitStr, Path, Token, parse_macro_input, parse_quote,
+    Attribute, Expr, Field, Fields, ItemStruct, Lit, LitBool, LitStr, Path, PathArguments, Token,
+    parse_macro_input, parse_quote,
 };
 
 struct ModelArgs {
@@ -81,6 +82,83 @@ impl Parse for ModelArgs {
     }
 }
 
+fn normalize_key_attrs(fields: &mut syn::FieldsNamed) -> syn::Result<()> {
+    for field in &mut fields.named {
+        let mut attrs = Vec::with_capacity(field.attrs.len());
+        for attr in field.attrs.drain(..) {
+            if attr.path().is_ident("key") {
+                let key = key_attr_value(&attr)?;
+                let key = LitStr::new(&key, proc_macro2::Span::call_site());
+                attrs.push(parse_quote!(#[seekwel(key = #key)]));
+            } else {
+                attrs.push(attr);
+            }
+        }
+        field.attrs = attrs;
+    }
+
+    Ok(())
+}
+
+fn key_attr_value(attr: &Attribute) -> syn::Result<String> {
+    let syn::Meta::NameValue(meta) = &attr.meta else {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "association keys must be written as #[key = column_name]",
+        ));
+    };
+
+    key_name_from_expr(&meta.value)
+}
+
+fn key_name_from_expr(expr: &Expr) -> syn::Result<String> {
+    let key = match expr {
+        Expr::Path(expr_path)
+            if expr_path.qself.is_none()
+                && expr_path.path.leading_colon.is_none()
+                && expr_path.path.segments.len() == 1 =>
+        {
+            let segment = expr_path.path.segments.first().unwrap();
+            if !matches!(segment.arguments, PathArguments::None) {
+                return Err(syn::Error::new_spanned(
+                    expr,
+                    "association keys must be column identifiers like owner_id",
+                ));
+            }
+            ident_name(&segment.ident)
+        }
+        Expr::Lit(expr_lit) => match &expr_lit.lit {
+            Lit::Str(lit) => lit.value(),
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    expr,
+                    "association keys must be column identifiers like owner_id",
+                ));
+            }
+        },
+        _ => {
+            return Err(syn::Error::new_spanned(
+                expr,
+                "association keys must be column identifiers like owner_id",
+            ));
+        }
+    };
+
+    if key.is_empty() {
+        return Err(syn::Error::new_spanned(
+            expr,
+            "association key column names cannot be empty",
+        ));
+    }
+
+    Ok(key)
+}
+
+fn ident_name(ident: &syn::Ident) -> String {
+    let raw = ident.to_string();
+    raw.strip_prefix("r#").unwrap_or(&raw).to_string()
+}
+
 // IMPORTANT: Avoid adding code here if you at all can. We want to macro to be responsible for generating
 // metadata that can be *consumed* by the main lib, instead of reimplementing behavior for every model in here.
 pub(crate) fn expand_model_attribute(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -117,6 +195,10 @@ pub(crate) fn expand_model_attribute(attr: TokenStream, item: TokenStream) -> To
         )
         .to_compile_error()
         .into();
+    }
+
+    if let Err(error) = normalize_key_attrs(fields) {
+        return error.to_compile_error().into();
     }
 
     item.generics = parse_quote!(<S = seekwel::Persisted>);

@@ -19,7 +19,8 @@ struct HyperlinkTombstone {
 struct Person {
     person_id: i32,
     name: String,
-    pets: HasMany<Pet, { PetColumns::OWNER_ID }>,
+    #[key = owner_id]
+    pets: HasMany<Pet>,
 }
 
 #[seekwel::model(table_name = "pet_record", primary_key = "pet_id")]

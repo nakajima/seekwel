@@ -1,7 +1,7 @@
 use quote::format_ident;
 use syn::{
-    Attribute, Data, DeriveInput, Expr, Field, Fields, GenericParam, Ident, Lit, Path, Type,
-    parse_quote,
+    Attribute, Data, DeriveInput, Expr, Field, Fields, GenericParam, Ident, Lit, Path,
+    PathArguments, Type, parse_quote,
 };
 
 use super::ir::{HasManyFieldSpec, ModelFieldSpec, ModelSpec, PrimaryKeySpec, StoredFieldSpec};
@@ -108,17 +108,6 @@ pub(crate) fn analyze_model(input: DeriveInput) -> Result<ModelSpec, syn::Error>
         .map(analyze_model_field)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let stored_field_count = model_fields
-        .iter()
-        .filter(|field| matches!(field, ModelFieldSpec::Stored(_)))
-        .count();
-    if stored_field_count > (u8::MAX as usize + 1) {
-        return Err(syn::Error::new_spanned(
-            &name,
-            "Model structs support at most 256 stored fields because HasMany association keys are encoded as u8",
-        ));
-    }
-
     Ok(ModelSpec {
         name,
         vis,
@@ -210,15 +199,22 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
     let association_target = belongs_to_target_type(&field.ty)
         .or_else(|| optional_inner_ty.as_ref().and_then(belongs_to_target_type))
         .cloned();
+    let association_key = association_key_attr(field)?;
 
     if let Some(target) = association_target.as_ref() {
         validate_association_target_type(target)?;
     }
 
-    let storage_column_name = if association_target.is_some() {
-        format!("{field_name}_id")
-    } else {
-        field_name.clone()
+    let storage_column_name = match (association_target.is_some(), association_key) {
+        (true, Some(key)) => key,
+        (true, None) => format!("{field_name}_id"),
+        (false, Some(_)) => {
+            return Err(syn::Error::new_spanned(
+                field,
+                "#[key = column_name] can only be used on BelongsTo or HasMany association fields",
+            ));
+        }
+        (false, None) => field_name.clone(),
     };
 
     Ok(ModelFieldSpec::Stored(StoredFieldSpec {
@@ -226,7 +222,7 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
         ty: field.ty.clone(),
         field_name,
         query_variant: column_variant_ident_from_str(&storage_column_name),
-        association_key_const: constant_ident_from_str(&storage_column_name),
+        association_handler: association_handler_ident_from_str(&storage_column_name),
         storage_column_name,
         is_optional: optional_inner_ty.is_some(),
         optional_inner_ty,
@@ -243,23 +239,30 @@ fn has_many_field(
     {
         return Err(syn::Error::new_spanned(
             &field.ty,
-            "Option<HasMany<T, C>> is not supported",
+            "Option<HasMany<T>> is not supported",
         ));
     }
 
-    let Some((child_ty, association_key_path)) = has_many_type(&field.ty)? else {
+    let Some(child_ty) = has_many_type(&field.ty)? else {
         return Ok(None);
     };
+    let association_key = association_key_attr(field)?.ok_or_else(|| {
+        syn::Error::new_spanned(
+            field,
+            "HasMany fields must specify the child foreign key with #[key = owner_id]",
+        )
+    })?;
+    let association_handler = association_handler_ident_from_str(&association_key);
 
     Ok(Some(HasManyFieldSpec {
         ident: field.ident.as_ref().unwrap().clone(),
         field_name,
         child_ty,
-        association_key_path,
+        association_handler,
     }))
 }
 
-fn has_many_type(ty: &Type) -> Result<Option<(Type, Path)>, syn::Error> {
+fn has_many_type(ty: &Type) -> Result<Option<Type>, syn::Error> {
     let Type::Path(type_path) = ty else {
         return Ok(None);
     };
@@ -274,14 +277,14 @@ fn has_many_type(ty: &Type) -> Result<Option<(Type, Path)>, syn::Error> {
     let syn::PathArguments::AngleBracketed(args) = &segment.arguments else {
         return Err(syn::Error::new_spanned(
             ty,
-            "HasMany fields must use `HasMany<Child, { ChildColumns::ASSOCIATION_ID }>`",
+            "HasMany fields must use `HasMany<Child>` and #[key = child_id]",
         ));
     };
 
-    if args.args.len() != 2 {
+    if args.args.len() != 1 {
         return Err(syn::Error::new_spanned(
             ty,
-            "HasMany fields must use exactly two generic arguments: `HasMany<Child, { ChildColumns::ASSOCIATION_ID }>`",
+            "HasMany fields must use exactly one generic argument: `HasMany<Child>`; put the child foreign key on the field with #[key = child_id]",
         ));
     }
 
@@ -290,42 +293,95 @@ fn has_many_type(ty: &Type) -> Result<Option<(Type, Path)>, syn::Error> {
         Some(other) => {
             return Err(syn::Error::new_spanned(
                 other,
-                "The first HasMany argument must be the child model type",
+                "The HasMany argument must be the child model type",
             ));
         }
         None => unreachable!(),
     };
 
-    let association_expr = match args.args.iter().nth(1) {
-        Some(syn::GenericArgument::Const(expr)) => expr,
-        Some(other) => {
-            return Err(syn::Error::new_spanned(
-                other,
-                "The second HasMany argument must be a const association key like `{ PetColumns::OWNER_ID }`",
-            ));
-        }
-        None => unreachable!(),
-    };
-
-    let Some(association_key_path) = const_expr_path(association_expr).cloned() else {
-        return Err(syn::Error::new_spanned(
-            association_expr,
-            "The second HasMany argument must be a const association key path like `{ PetColumns::OWNER_ID }`",
-        ));
-    };
-
-    Ok(Some((child_ty, association_key_path)))
+    Ok(Some(child_ty))
 }
 
-fn const_expr_path(expr: &Expr) -> Option<&Path> {
-    match expr {
-        Expr::Path(expr_path) => Some(&expr_path.path),
-        Expr::Block(expr_block) => match expr_block.block.stmts.as_slice() {
-            [syn::Stmt::Expr(expr, None)] => const_expr_path(expr),
-            _ => None,
-        },
-        _ => None,
+fn association_key_attr(field: &Field) -> Result<Option<String>, syn::Error> {
+    let mut key = None;
+
+    for attr in &field.attrs {
+        if attr.path().is_ident("key") {
+            if key.is_some() {
+                return Err(syn::Error::new_spanned(attr, "duplicate `key` attribute"));
+            }
+
+            let syn::Meta::NameValue(meta) = &attr.meta else {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "association keys must be written as #[key = column_name]",
+                ));
+            };
+
+            key = Some(key_name_from_expr(&meta.value)?);
+            continue;
+        }
+
+        if attr.path().is_ident("seekwel") {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("key") {
+                    if key.is_some() {
+                        return Err(meta.error("duplicate `key` attribute"));
+                    }
+                    let expr: Expr = meta.value()?.parse()?;
+                    key = Some(key_name_from_expr(&expr)?);
+                    return Ok(());
+                }
+
+                Err(meta.error("unsupported seekwel field option; expected `key`"))
+            })?;
+        }
     }
+
+    Ok(key)
+}
+
+fn key_name_from_expr(expr: &Expr) -> Result<String, syn::Error> {
+    let key = match expr {
+        Expr::Path(expr_path)
+            if expr_path.qself.is_none()
+                && expr_path.path.leading_colon.is_none()
+                && expr_path.path.segments.len() == 1 =>
+        {
+            let segment = expr_path.path.segments.first().unwrap();
+            if !matches!(segment.arguments, PathArguments::None) {
+                return Err(syn::Error::new_spanned(
+                    expr,
+                    "association keys must be column identifiers like owner_id",
+                ));
+            }
+            ident_name(&segment.ident)
+        }
+        Expr::Lit(expr_lit) => match &expr_lit.lit {
+            Lit::Str(lit) => lit.value(),
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    expr,
+                    "association keys must be column identifiers like owner_id",
+                ));
+            }
+        },
+        _ => {
+            return Err(syn::Error::new_spanned(
+                expr,
+                "association keys must be column identifiers like owner_id",
+            ));
+        }
+    };
+
+    if key.is_empty() {
+        return Err(syn::Error::new_spanned(
+            expr,
+            "association key column names cannot be empty",
+        ));
+    }
+
+    Ok(key)
 }
 
 fn validate_typestate_generics(generics: &syn::Generics) -> Result<(), syn::Error> {
@@ -398,20 +454,23 @@ fn ident_name(ident: &Ident) -> String {
     raw.strip_prefix("r#").unwrap_or(&raw).to_string()
 }
 
-fn constant_ident_from_str(raw: &str) -> Ident {
-    let mut constant = String::new();
-    for part in raw.split('_').filter(|part| !part.is_empty()) {
-        if !constant.is_empty() {
-            constant.push('_');
+fn association_handler_ident_from_str(raw: &str) -> Ident {
+    let mut suffix = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            suffix.push(ch.to_ascii_lowercase());
+        } else if !suffix.ends_with('_') {
+            suffix.push('_');
         }
-        constant.push_str(&part.to_uppercase());
+    }
+    while suffix.ends_with('_') {
+        suffix.pop();
+    }
+    if suffix.is_empty() {
+        suffix.push_str("column");
     }
 
-    if constant.is_empty() {
-        constant.push_str("COLUMN");
-    }
-
-    format_ident!("{}", constant)
+    format_ident!("__seekwel_has_many_handlers_for_{}", suffix)
 }
 
 fn column_variant_ident_from_str(raw: &str) -> Ident {
