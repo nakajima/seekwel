@@ -14,6 +14,12 @@ pub struct Lazy<Q> {
     pub(super) inner: Q,
 }
 
+impl<Q> Lazy<Q> {
+    pub(crate) fn new(inner: Q) -> Self {
+        Self { inner }
+    }
+}
+
 /// The fallible iterator returned by [`Lazy::try_iter`] and [`QueryDsl::try_iter`]
 /// on lazy queries.
 #[derive(Debug)]

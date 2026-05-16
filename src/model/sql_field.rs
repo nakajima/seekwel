@@ -1,6 +1,6 @@
 use rusqlite::types::{Value, ValueRef};
 
-use super::ColumnDef;
+use super::{ColumnDef, IndexDef};
 
 /// Describes how a Rust type is stored in SQLite.
 ///
@@ -77,6 +77,15 @@ pub const fn column<T: SqlField>(name: &'static str) -> ColumnDef {
         name,
         sql_type: T::SQL_TYPE,
         nullable: T::NULLABLE,
+    }
+}
+
+#[doc(hidden)]
+pub const fn index(name: &'static str, column: &'static str, unique: bool) -> IndexDef {
+    IndexDef {
+        name,
+        column,
+        unique,
     }
 }
 

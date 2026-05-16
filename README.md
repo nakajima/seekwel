@@ -62,6 +62,19 @@ Connection::memory()?;
 Person::create_table()?;
 ```
 
+Use `#[index]` and `#[unique]` on stored fields when the generated table should create a single-column index or unique index.
+
+```rs
+#[seekwel::model]
+struct User {
+    id: u64,
+    #[index]
+    name: String,
+    #[unique]
+    email: String,
+}
+```
+
 ### create and persist records
 
 ```rs
@@ -333,7 +346,14 @@ owner.pets.append(Pet::builder().name("Fido"))?;
 assert_eq!(owner.pets()?.len(), 1);
 assert_eq!(owner.pets()?[0].owner, owner);
 
-// Association fields are stored as `<field>_id` columns for querying.
+// HasMany fields expose the query interface, scoped to the parent.
+let pets = owner
+    .pets
+    .q(PetColumns::Name, seekwel::Comparison::Eq("Fido"))
+    .all()?;
+assert_eq!(pets.len(), 1);
+
+// Association fields are still stored as `<field>_id` columns for direct child queries.
 let pets = Pet::q(PetColumns::OwnerId, seekwel::Comparison::Eq(owner.id)).all()?;
 assert_eq!(pets.len(), 1);
 ```

@@ -83,12 +83,72 @@ fn has_many_loads_appends_and_queries_children() -> Result<(), Error> {
 }
 
 #[test]
+fn has_many_query_interface_is_scoped_to_the_parent() -> Result<(), Error> {
+    with_associations(|| {
+        let owner = Person::builder().name("Pat").create()?;
+        let other_owner = Person::builder().name("Sam").create()?;
+
+        owner.pets.append(Pet::builder().name("Fido"))?;
+        owner.pets.append(Pet::builder().name("Rex"))?;
+        other_owner.pets.append(Pet::builder().name("Rex"))?;
+
+        assert_eq!(owner.pets.count()?, 2);
+        assert!(owner.pets.exists()?);
+
+        let first_descending = owner.pets.desc(PetColumns::Name).first()?;
+        assert_eq!(
+            first_descending.map(|pet| pet.name),
+            Some("Rex".to_string())
+        );
+
+        let scoped_or_names: Vec<_> = owner
+            .pets
+            .q(PetColumns::Name, Comparison::Eq("Fido"))
+            .or(Pet::q(PetColumns::Name, Comparison::Eq("Rex")))
+            .order(PetColumns::Name)
+            .all()?
+            .into_iter()
+            .map(|pet| pet.name)
+            .collect();
+        assert_eq!(scoped_or_names, vec!["Fido".to_string(), "Rex".to_string()]);
+
+        let lazy_names: Result<Vec<_>, _> = owner
+            .pets
+            .order(PetColumns::Name)
+            .lazy()
+            .try_iter()?
+            .map(|pet| pet.map(|pet| pet.name))
+            .collect();
+        assert_eq!(lazy_names?, vec!["Fido".to_string(), "Rex".to_string()]);
+
+        let mut chunked_names = Vec::new();
+        for pets in owner.pets.order(PetColumns::Name).chunked(1) {
+            chunked_names.extend(pets.into_iter().map(|pet| pet.name));
+        }
+        assert_eq!(chunked_names, vec!["Fido".to_string(), "Rex".to_string()]);
+
+        Ok(())
+    })
+}
+
+#[test]
 fn has_many_requires_a_persisted_parent() -> Result<(), Error> {
     with_associations(|| {
         let draft = Person::builder().name("Draft").build()?;
 
         assert!(matches!(
             draft.pets.load(),
+            Err(Error::InvalidAssociation(_))
+        ));
+        assert!(matches!(
+            draft.pets.all(),
+            Err(Error::InvalidAssociation(_))
+        ));
+        assert!(matches!(
+            draft
+                .pets
+                .q(PetColumns::Name, Comparison::Eq("Fido"))
+                .count(),
             Err(Error::InvalidAssociation(_))
         ));
         assert!(matches!(

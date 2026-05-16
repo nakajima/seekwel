@@ -15,6 +15,12 @@ pub struct Chunked<Q> {
     pub(super) chunk_size: usize,
 }
 
+impl<Q> Chunked<Q> {
+    pub(crate) fn new(inner: Q, chunk_size: usize) -> Self {
+        Self { inner, chunk_size }
+    }
+}
+
 /// The fallible iterator returned by [`Chunked::try_iter`] and
 /// [`QueryDsl::try_iter`] on chunked queries.
 #[derive(Debug)]

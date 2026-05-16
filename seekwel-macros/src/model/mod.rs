@@ -82,7 +82,7 @@ impl Parse for ModelArgs {
     }
 }
 
-fn normalize_key_attrs(fields: &mut syn::FieldsNamed) -> syn::Result<()> {
+fn normalize_field_attrs(fields: &mut syn::FieldsNamed) -> syn::Result<()> {
     for field in &mut fields.named {
         let mut attrs = Vec::with_capacity(field.attrs.len());
         for attr in field.attrs.drain(..) {
@@ -90,6 +90,22 @@ fn normalize_key_attrs(fields: &mut syn::FieldsNamed) -> syn::Result<()> {
                 let key = key_attr_value(&attr)?;
                 let key = LitStr::new(&key, proc_macro2::Span::call_site());
                 attrs.push(parse_quote!(#[seekwel(key = #key)]));
+            } else if attr.path().is_ident("index") {
+                if !matches!(&attr.meta, syn::Meta::Path(_)) {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "indexes must be written as #[index]",
+                    ));
+                }
+                attrs.push(parse_quote!(#[seekwel(index)]));
+            } else if attr.path().is_ident("unique") {
+                if !matches!(&attr.meta, syn::Meta::Path(_)) {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "unique indexes must be written as #[unique]",
+                    ));
+                }
+                attrs.push(parse_quote!(#[seekwel(unique)]));
             } else {
                 attrs.push(attr);
             }
@@ -197,7 +213,7 @@ pub(crate) fn expand_model_attribute(attr: TokenStream, item: TokenStream) -> To
         .into();
     }
 
-    if let Err(error) = normalize_key_attrs(fields) {
+    if let Err(error) = normalize_field_attrs(fields) {
         return error.to_compile_error().into();
     }
 

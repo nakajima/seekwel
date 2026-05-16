@@ -4,7 +4,7 @@ use crate::error::Error;
 
 use super::introspect::ActualTable;
 use super::plan::{PlanBlocker, PlanOp, RebuildReason};
-use super::types::{ColumnDef, SchemaDef};
+use super::types::{ColumnDef, IndexDef, SchemaDef};
 
 pub(crate) struct DiffResult {
     pub(crate) source: SchemaDef,
@@ -46,6 +46,16 @@ pub(crate) fn diff(
         let mut actual_columns: BTreeMap<&str, &ColumnDef> = BTreeMap::new();
         for column in &actual.table.columns {
             actual_columns.insert(column.name.as_str(), column);
+        }
+
+        let mut desired_indexes: BTreeMap<&str, &IndexDef> = BTreeMap::new();
+        for index in &desired.indexes {
+            desired_indexes.insert(index.name.as_str(), index);
+        }
+
+        let mut actual_indexes: BTreeMap<&str, &IndexDef> = BTreeMap::new();
+        for index in &actual.table.indexes {
+            actual_indexes.insert(index.name.as_str(), index);
         }
 
         let mut add_columns = Vec::new();
@@ -150,6 +160,38 @@ pub(crate) fn diff(
                 column,
             });
         }
+
+        for (name, desired_index) in &desired_indexes {
+            match actual_indexes.get(name) {
+                None => ops.push(PlanOp::CreateIndex {
+                    table: (*table_name).to_string(),
+                    index: (*desired_index).clone(),
+                }),
+                Some(actual_index) => {
+                    if desired_index.column != actual_index.column
+                        || desired_index.unique != actual_index.unique
+                    {
+                        ops.push(PlanOp::DropIndex {
+                            table: (*table_name).to_string(),
+                            index: (*actual_index).clone(),
+                        });
+                        ops.push(PlanOp::CreateIndex {
+                            table: (*table_name).to_string(),
+                            index: (*desired_index).clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        for (name, actual_index) in &actual_indexes {
+            if !desired_indexes.contains_key(name) {
+                ops.push(PlanOp::DropIndex {
+                    table: (*table_name).to_string(),
+                    index: (*actual_index).clone(),
+                });
+            }
+        }
     }
 
     let target_names: BTreeSet<_> = target_by_name.keys().copied().collect();
@@ -193,10 +235,12 @@ pub(crate) fn diff(
 
 fn plan_op_sort_key(op: &PlanOp) -> (u8, &str, &str) {
     match op {
-        PlanOp::CreateTable { table } => (0, table.name.as_str(), ""),
-        PlanOp::AddColumn { table, column } => (1, table.as_str(), column.name.as_str()),
-        PlanOp::RebuildTable { table, .. } => (2, table.as_str(), ""),
-        PlanOp::DropTable { table } => (3, table.name.as_str(), ""),
+        PlanOp::DropIndex { table, index } => (0, table.as_str(), index.name.as_str()),
+        PlanOp::CreateTable { table } => (1, table.name.as_str(), ""),
+        PlanOp::AddColumn { table, column } => (2, table.as_str(), column.name.as_str()),
+        PlanOp::RebuildTable { table, .. } => (3, table.as_str(), ""),
+        PlanOp::CreateIndex { table, index } => (4, table.as_str(), index.name.as_str()),
+        PlanOp::DropTable { table } => (5, table.name.as_str(), ""),
     }
 }
 
@@ -256,6 +300,7 @@ mod tests {
                         nullable: true,
                     },
                 ],
+                indexes: Vec::new(),
             }),
         );
 

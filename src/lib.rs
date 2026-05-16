@@ -61,10 +61,10 @@ pub use error::Error;
 
 pub use model::{
     BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, CreateOrUpdateError,
-    Errors, HasMany, Invalid, InvalidModel, Lazy, LazyIter, LazyQuery, LazyTryIter, Model,
-    ModelQueryDsl, ModelRecord, NewModel, NewRecord, NoValidation, Order, Params, ParamsModel,
-    ParamsModelDsl, Persisted, PersistedModel, PrimaryKeyField, PrimaryKeyLookup, Query, QueryDsl,
-    SaveError, SqlField, ValidationError, Validator,
+    Errors, HasMany, HasManyQuery, IndexDef, Invalid, InvalidModel, Lazy, LazyIter, LazyQuery,
+    LazyTryIter, Model, ModelQueryDsl, ModelRecord, NewModel, NewRecord, NoValidation, Order,
+    Params, ParamsModel, ParamsModelDsl, Persisted, PersistedModel, PrimaryKeyField,
+    PrimaryKeyLookup, Query, QueryDsl, SaveError, SqlField, ValidationError, Validator,
 };
 
 /// Derive macro that implements seekwel's model traits for a typestate model struct.
@@ -76,10 +76,10 @@ pub use seekwel_macros::model;
 pub mod prelude {
     /// Accessors for invalid model values returned by validation failures.
     pub use crate::InvalidModel;
-    /// Record helpers like `.errors()`, `.is_persisted()`, and `.is_new_record()`.
-    pub use crate::ModelRecord;
     /// Model-level query entrypoints like `Person::all()` and `Person::lazy()`.
     pub use crate::ModelQueryDsl;
+    /// Record helpers like `.errors()`, `.is_persisted()`, and `.is_new_record()`.
+    pub use crate::ModelRecord;
     /// New-record operations like `.save()`.
     pub use crate::NewModel;
     /// Params filtering helpers like `.allow(...)`.

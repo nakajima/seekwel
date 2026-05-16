@@ -3,7 +3,7 @@ use crate::model;
 
 use super::plan::Plan;
 use super::registry;
-use super::types::{ColumnDef, PrimaryKeyDef, SchemaDef, TableDef};
+use super::types::{ColumnDef, IndexDef, PrimaryKeyDef, SchemaDef, TableDef};
 
 /// Builds a desired managed schema from one or more seekwel models.
 #[derive(Debug, Clone, Default)]
@@ -60,6 +60,14 @@ pub(crate) fn table_for_model<M: model::Model>() -> TableDef {
                 name: column.name.to_string(),
                 sql_type: column.sql_type.to_string(),
                 nullable: column.nullable,
+            })
+            .collect(),
+        indexes: M::indexes()
+            .iter()
+            .map(|index| IndexDef {
+                name: index.name.to_string(),
+                column: index.column.to_string(),
+                unique: index.unique,
             })
             .collect(),
     }

@@ -17,7 +17,7 @@ mod types;
 
 pub use desired::SchemaBuilder;
 pub use plan::{ApplyMode, Plan, PlanBlocker, PlanOp, RebuildReason};
-pub use types::{ColumnDef, PrimaryKeyDef, SchemaDef, SqlAffinity, TableDef};
+pub use types::{ColumnDef, IndexDef, PrimaryKeyDef, SchemaDef, SqlAffinity, TableDef};
 
 #[doc(hidden)]
 pub mod __private {

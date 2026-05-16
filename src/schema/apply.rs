@@ -8,7 +8,7 @@ use super::diff;
 use super::history;
 use super::introspect::{self, ActualTable};
 use super::plan::{ApplyMode, Plan, PlanOp};
-use super::types::{ColumnDef, TableDef};
+use super::types::{ColumnDef, IndexDef, TableDef};
 
 pub(crate) fn apply(plan: &Plan, mode: ApplyMode) -> Result<(), Error> {
     Connection::with_exclusive_write(|conn| {
@@ -47,6 +47,8 @@ pub(crate) fn apply(plan: &Plan, mode: ApplyMode) -> Result<(), Error> {
                 match op {
                     PlanOp::CreateTable { table } => create_table(conn, &table.name, table)?,
                     PlanOp::AddColumn { table, column } => add_column(conn, table, column)?,
+                    PlanOp::CreateIndex { table, index } => create_index(conn, table, index)?,
+                    PlanOp::DropIndex { index, .. } => drop_index(conn, index)?,
                     PlanOp::RebuildTable {
                         table, from, to, ..
                     } => {
@@ -144,7 +146,8 @@ fn create_table(
 ) -> Result<(), Error> {
     let sql = render_create_table_sql(table_name, table);
     record_query(&sql);
-    conn.execute_batch(&sql).map_err(Error::Sqlite)
+    conn.execute_batch(&sql).map_err(Error::Sqlite)?;
+    create_indexes(conn, table_name, &table.indexes)
 }
 
 fn add_column(conn: &rusqlite::Connection, table: &str, column: &ColumnDef) -> Result<(), Error> {
@@ -187,6 +190,8 @@ fn rebuild_table(
     );
     record_query(&rename_sql);
     conn.execute_batch(&rename_sql).map_err(Error::Sqlite)?;
+
+    create_indexes(conn, table_name, &to.indexes)?;
 
     for replay in &actual.replay_sql {
         record_query(&replay.sql);
@@ -233,6 +238,47 @@ fn render_add_column_sql(table_name: &str, column: &ColumnDef) -> String {
         quote_ident(table_name),
         render_column_definition(column)
     )
+}
+
+fn create_indexes(
+    conn: &rusqlite::Connection,
+    table_name: &str,
+    indexes: &[IndexDef],
+) -> Result<(), Error> {
+    for index in indexes {
+        create_index(conn, table_name, index)?;
+    }
+    Ok(())
+}
+
+fn create_index(
+    conn: &rusqlite::Connection,
+    table_name: &str,
+    index: &IndexDef,
+) -> Result<(), Error> {
+    let sql = render_create_index_sql(table_name, index);
+    record_query(&sql);
+    conn.execute_batch(&sql).map_err(Error::Sqlite)
+}
+
+fn drop_index(conn: &rusqlite::Connection, index: &IndexDef) -> Result<(), Error> {
+    let sql = render_drop_index_sql(index);
+    record_query(&sql);
+    conn.execute_batch(&sql).map_err(Error::Sqlite)
+}
+
+fn render_create_index_sql(table_name: &str, index: &IndexDef) -> String {
+    let unique = if index.unique { "UNIQUE " } else { "" };
+    format!(
+        "CREATE {unique}INDEX {} ON {} ({})",
+        quote_ident(&index.name),
+        quote_ident(table_name),
+        quote_ident(&index.column)
+    )
+}
+
+fn render_drop_index_sql(index: &IndexDef) -> String {
+    format!("DROP INDEX {}", quote_ident(&index.name))
 }
 
 fn render_copy_sql(

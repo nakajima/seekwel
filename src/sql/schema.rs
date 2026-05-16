@@ -1,4 +1,4 @@
-use crate::model::{ColumnDef, PrimaryKeyDef};
+use crate::model::{ColumnDef, IndexDef, PrimaryKeyDef};
 
 use super::render::column_definitions;
 
@@ -41,6 +41,15 @@ pub fn create_table(table_name: &str, primary_key: PrimaryKeyDef, columns: &[Col
     .to_sql()
 }
 
+/// Builds a `CREATE INDEX IF NOT EXISTS` statement for a model index.
+pub fn create_index(table_name: &str, index: IndexDef) -> String {
+    let unique = if index.unique { "UNIQUE " } else { "" };
+    format!(
+        "CREATE {unique}INDEX IF NOT EXISTS {} ON {} ({})",
+        index.name, table_name, index.column
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,6 +90,32 @@ mod tests {
         assert_eq!(
             create_table("empty", primary_key("hyperlink_id"), &[]),
             "CREATE TABLE IF NOT EXISTS empty (hyperlink_id INTEGER PRIMARY KEY)"
+        );
+    }
+
+    #[test]
+    fn create_index_renders_unique_and_non_unique_indexes() {
+        assert_eq!(
+            create_index(
+                "person",
+                IndexDef {
+                    name: "idx_person_name",
+                    column: "name",
+                    unique: false,
+                },
+            ),
+            "CREATE INDEX IF NOT EXISTS idx_person_name ON person (name)"
+        );
+        assert_eq!(
+            create_index(
+                "person",
+                IndexDef {
+                    name: "idx_person_email",
+                    column: "email",
+                    unique: true,
+                },
+            ),
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_person_email ON person (email)"
         );
     }
 }

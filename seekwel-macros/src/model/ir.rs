@@ -52,6 +52,8 @@ pub(crate) struct StoredFieldSpec {
     pub(crate) storage_column_name: String,
     pub(crate) query_variant: Ident,
     pub(crate) association_handler: Ident,
+    pub(crate) indexed: bool,
+    pub(crate) unique: bool,
     pub(crate) is_optional: bool,
     pub(crate) optional_inner_ty: Option<Type>,
     pub(crate) association_target: Option<Type>,

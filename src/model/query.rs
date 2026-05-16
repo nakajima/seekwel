@@ -485,7 +485,7 @@ pub trait ModelQueryDsl: PersistedModel + Sized + 'static {
 
 impl<M: PersistedModel + 'static> ModelQueryDsl for M {}
 
-fn assert_chunk_size(chunk_size: usize) {
+pub(super) fn assert_chunk_size(chunk_size: usize) {
     assert!(chunk_size > 0, "chunk size must be greater than 0");
 }
 

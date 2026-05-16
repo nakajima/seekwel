@@ -5,7 +5,7 @@ use super::apply;
 use super::diff;
 use super::introspect;
 use super::types::{
-    ARTIFACT_VERSION, ColumnDef, SchemaDef, TableDef, json_escape, stable_hash_hex,
+    ARTIFACT_VERSION, ColumnDef, IndexDef, SchemaDef, TableDef, json_escape, stable_hash_hex,
 };
 
 /// Controls which schema plans may be applied.
@@ -134,6 +134,14 @@ pub enum PlanOp {
         table: String,
         column: ColumnDef,
     },
+    CreateIndex {
+        table: String,
+        index: IndexDef,
+    },
+    DropIndex {
+        table: String,
+        index: IndexDef,
+    },
     RebuildTable {
         table: String,
         from: TableDef,
@@ -160,6 +168,16 @@ impl PlanOp {
                 "{{\"kind\":\"add_column\",\"table\":\"{}\",\"column\":{}}}",
                 json_escape(table),
                 column_json(column)
+            ),
+            Self::CreateIndex { table, index } => format!(
+                "{{\"kind\":\"create_index\",\"table\":\"{}\",\"index\":{}}}",
+                json_escape(table),
+                index_json(index)
+            ),
+            Self::DropIndex { table, index } => format!(
+                "{{\"kind\":\"drop_index\",\"table\":\"{}\",\"index\":{}}}",
+                json_escape(table),
+                index_json(index)
             ),
             Self::RebuildTable { table, reasons, .. } => format!(
                 "{{\"kind\":\"rebuild_table\",\"table\":\"{}\",\"reasons\":[{}]}}",
@@ -307,7 +325,7 @@ fn schema_tables_json(schema: &SchemaDef) -> String {
 
 fn table_json(table: &TableDef) -> String {
     format!(
-        "{{\"name\":\"{}\",\"primary_key\":{{\"name\":\"{}\",\"sql_type\":\"{}\"}},\"columns\":[{}]}}",
+        "{{\"name\":\"{}\",\"primary_key\":{{\"name\":\"{}\",\"sql_type\":\"{}\"}},\"columns\":[{}],\"indexes\":[{}]}}",
         json_escape(&table.name),
         json_escape(&table.primary_key.name),
         json_escape(&table.primary_key.sql_type),
@@ -315,6 +333,12 @@ fn table_json(table: &TableDef) -> String {
             .columns
             .iter()
             .map(column_json)
+            .collect::<Vec<_>>()
+            .join(","),
+        table
+            .indexes
+            .iter()
+            .map(index_json)
             .collect::<Vec<_>>()
             .join(",")
     )
@@ -326,5 +350,14 @@ fn column_json(column: &ColumnDef) -> String {
         json_escape(&column.name),
         json_escape(&column.sql_type),
         column.nullable
+    )
+}
+
+fn index_json(index: &IndexDef) -> String {
+    format!(
+        "{{\"name\":\"{}\",\"column\":\"{}\",\"unique\":{}}}",
+        json_escape(&index.name),
+        json_escape(&index.column),
+        index.unique
     )
 }

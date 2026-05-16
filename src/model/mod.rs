@@ -19,7 +19,7 @@ mod query;
 mod sql_field;
 mod validation;
 
-pub use association::{BelongsTo, HasMany};
+pub use association::{BelongsTo, HasMany, HasManyQuery};
 #[doc(hidden)]
 pub use association::{HasManyChild, HasManyHandlers};
 pub use comparison::{Comparison, ComparisonOperand};
@@ -30,7 +30,7 @@ pub use query::{
 };
 pub use sql_field::SqlField;
 #[doc(hidden)]
-pub use sql_field::column;
+pub use sql_field::{column, index};
 pub use validation::{
     CreateOrUpdateError, Errors, Invalid, InvalidModel, NoValidation, SaveError, ValidationError,
     Validator,
@@ -45,6 +45,17 @@ pub struct ColumnDef {
     pub sql_type: &'static str,
     /// Whether the column may store `NULL`.
     pub nullable: bool,
+}
+
+/// Describes a single-column SQLite index for a model.
+#[derive(Debug, Clone, Copy)]
+pub struct IndexDef {
+    /// The index name in SQLite.
+    pub name: &'static str,
+    /// The indexed column name in SQLite.
+    pub column: &'static str,
+    /// Whether this is a unique index.
+    pub unique: bool,
 }
 
 /// Describes a model's primary key column.
@@ -181,6 +192,10 @@ pub trait Model: Sized {
     fn primary_key() -> PrimaryKeyDef;
     /// Returns metadata for all non-primary-key stored columns in declaration order.
     fn columns() -> &'static [ColumnDef];
+    /// Returns metadata for single-column indexes generated for this model.
+    fn indexes() -> &'static [IndexDef] {
+        &[]
+    }
     /// Returns metadata for the columns used by `INSERT` statements.
     fn insert_columns() -> &'static [ColumnDef];
     /// Returns values for non-primary-key stored columns, in the same order as [`Self::columns`].
@@ -194,6 +209,11 @@ pub trait Model: Sized {
         let query = sql::create_table(Self::table_name(), Self::primary_key(), Self::columns());
         record_query(&query);
         conn.execute(&query, ())?;
+        for index in Self::indexes() {
+            let query = sql::create_index(Self::table_name(), *index);
+            record_query(&query);
+            conn.execute(&query, ())?;
+        }
         Ok(())
     }
 }

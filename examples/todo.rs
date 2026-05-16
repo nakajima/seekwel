@@ -145,6 +145,13 @@ fn print_plan(plan: &Plan) {
                     table, column.name, column.sql_type, nullable
                 );
             }
+            PlanOp::CreateIndex { table, index } => {
+                let unique = if index.unique { " unique" } else { "" };
+                println!("  - create{unique} index `{}.{}`", table, index.name);
+            }
+            PlanOp::DropIndex { table, index } => {
+                println!("  - drop index `{}.{}`", table, index.name);
+            }
             PlanOp::RebuildTable { table, reasons, .. } => {
                 println!("  - rebuild table `{}` ({})", table, reasons.len());
             }

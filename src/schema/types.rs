@@ -17,6 +17,7 @@ impl SchemaDef {
         self.tables.sort_by(|a, b| a.name.cmp(&b.name));
         for table in &mut self.tables {
             table.columns.sort_by(|a, b| a.name.cmp(&b.name));
+            table.indexes.sort_by(|a, b| a.name.cmp(&b.name));
         }
 
         for pair in self.tables.windows(2) {
@@ -47,6 +48,27 @@ impl SchemaDef {
                     table.name, table.primary_key.name
                 )));
             }
+            for pair in table.indexes.windows(2) {
+                if pair[0].name == pair[1].name {
+                    return Err(Error::InvalidSchema(format!(
+                        "duplicate index `{}` in table `{}`",
+                        pair[0].name, table.name
+                    )));
+                }
+            }
+            for index in &table.indexes {
+                if index.column != table.primary_key.name
+                    && !table
+                        .columns
+                        .iter()
+                        .any(|column| column.name == index.column)
+                {
+                    return Err(Error::InvalidSchema(format!(
+                        "index `{}` in table `{}` references unknown column `{}`",
+                        index.name, table.name, index.column
+                    )));
+                }
+            }
         }
 
         Ok(self)
@@ -68,6 +90,16 @@ impl SchemaDef {
                     column.name,
                     column.sql_type,
                     u8::from(column.nullable)
+                );
+            }
+            for index in &table.indexes {
+                let _ = writeln!(
+                    &mut out,
+                    "index\t{}\t{}\t{}\t{}",
+                    table.name,
+                    index.name,
+                    index.column,
+                    u8::from(index.unique)
                 );
             }
         }
@@ -106,6 +138,7 @@ impl SchemaDef {
                             sql_type: primary_key_sql_type.to_string(),
                         },
                         columns: Vec::new(),
+                        indexes: Vec::new(),
                     });
                 }
                 "column" => {
@@ -148,6 +181,46 @@ impl SchemaDef {
                         },
                     });
                 }
+                "index" => {
+                    let table_name = parts.next().ok_or_else(|| {
+                        Error::InvalidSchema("history row is missing index table name".into())
+                    })?;
+                    let index_name = parts.next().ok_or_else(|| {
+                        Error::InvalidSchema("history row is missing index name".into())
+                    })?;
+                    let column_name = parts.next().ok_or_else(|| {
+                        Error::InvalidSchema("history row is missing index column name".into())
+                    })?;
+                    let unique = parts.next().ok_or_else(|| {
+                        Error::InvalidSchema("history row is missing index uniqueness".into())
+                    })?;
+                    if parts.next().is_some() {
+                        return Err(Error::InvalidSchema(format!(
+                            "history index row for `{table_name}.{index_name}` has trailing data"
+                        )));
+                    }
+
+                    let Some(table) = tables.iter_mut().find(|table| table.name == table_name)
+                    else {
+                        return Err(Error::InvalidSchema(format!(
+                            "history index row references unknown table `{table_name}`"
+                        )));
+                    };
+
+                    table.indexes.push(IndexDef {
+                        name: index_name.to_string(),
+                        column: column_name.to_string(),
+                        unique: match unique {
+                            "0" => false,
+                            "1" => true,
+                            other => {
+                                return Err(Error::InvalidSchema(format!(
+                                    "history index `{table_name}.{index_name}` has invalid uniqueness flag `{other}`"
+                                )));
+                            }
+                        },
+                    });
+                }
                 other => {
                     return Err(Error::InvalidSchema(format!(
                         "history row has unknown record kind `{other}`"
@@ -179,6 +252,8 @@ pub struct TableDef {
     pub primary_key: PrimaryKeyDef,
     /// All managed non-primary-key columns in deterministic name order.
     pub columns: Vec<ColumnDef>,
+    /// All managed single-column indexes in deterministic name order.
+    pub indexes: Vec<IndexDef>,
 }
 
 /// A managed SQLite primary-key definition.
@@ -211,6 +286,17 @@ impl ColumnDef {
     pub(crate) fn affinity(&self) -> SqlAffinity {
         SqlAffinity::from_declared_type(&self.sql_type)
     }
+}
+
+/// A managed single-column SQLite index definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexDef {
+    /// The SQLite index name.
+    pub name: String,
+    /// The indexed column name.
+    pub column: String,
+    /// Whether the index is unique.
+    pub unique: bool,
 }
 
 /// SQLite type affinity used for supported column comparison.

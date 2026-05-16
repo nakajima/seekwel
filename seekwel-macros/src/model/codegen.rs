@@ -55,6 +55,18 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             }
         })
         .collect();
+    let index_defs: Vec<_> = stored_fields
+        .iter()
+        .filter(|field| field.indexed || field.unique)
+        .map(|field| {
+            let column_name = field.storage_column_name.as_str();
+            let index_name = index_name(table_name, column_name);
+            let unique = field.unique;
+            quote! {
+                seekwel::model::index(#index_name, #column_name, #unique)
+            }
+        })
+        .collect();
     let insert_column_defs = if primary_key_auto_increment {
         quote! { #(#column_defs,)* }
     } else {
@@ -544,13 +556,11 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             #[doc(hidden)]
             pub fn #handler() -> seekwel::model::HasManyHandlers<Self, #parent> {
                 seekwel::model::HasManyHandlers::<Self, #parent>::new(
-                    |parent_id: u64| -> Result<Vec<Self>, seekwel::error::Error> {
-                        <seekwel::model::Query<Self> as seekwel::model::QueryDsl>::all(
-                            seekwel::model::Query::new(
-                                #columns_name::#query_variant,
-                                seekwel::Comparison::Eq(parent_id),
-                            )
-                        )
+                    |parent_id: u64| -> Result<seekwel::model::Query<Self>, seekwel::error::Error> {
+                        Ok(seekwel::model::Query::new(
+                            #columns_name::#query_variant,
+                            seekwel::Comparison::Eq(parent_id),
+                        ))
                     },
                     |parent_id: u64, builder: <Self as seekwel::model::HasManyChild>::Builder| -> Result<Self, seekwel::error::Error> {
                         #append_call
@@ -720,6 +730,11 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             fn columns() -> &'static [seekwel::model::ColumnDef] {
                 const COLUMNS: &[seekwel::model::ColumnDef] = &[#(#column_defs,)*];
                 COLUMNS
+            }
+
+            fn indexes() -> &'static [seekwel::model::IndexDef] {
+                const INDEXES: &[seekwel::model::IndexDef] = &[#(#index_defs,)*];
+                INDEXES
             }
 
             fn insert_columns() -> &'static [seekwel::model::ColumnDef] {
@@ -1052,6 +1067,32 @@ fn has_many_handlers(field: &HasManyFieldSpec) -> proc_macro2::TokenStream {
     quote! {
         <#child_ty>::#association_handler()
     }
+}
+
+fn index_name(table_name: &str, column_name: &str) -> String {
+    format!(
+        "seekwel_idx_{}_{}",
+        sanitize_index_name_part(table_name),
+        sanitize_index_name_part(column_name),
+    )
+}
+
+fn sanitize_index_name_part(value: &str) -> String {
+    let mut output = String::new();
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            output.push(ch.to_ascii_lowercase());
+        } else if !output.ends_with('_') {
+            output.push('_');
+        }
+    }
+    while output.ends_with('_') {
+        output.pop();
+    }
+    if output.is_empty() {
+        output.push_str("value");
+    }
+    output
 }
 
 #[cfg(feature = "serde")]

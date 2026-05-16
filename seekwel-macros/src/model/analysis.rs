@@ -190,8 +190,9 @@ fn parse_model_config(attrs: &[Attribute]) -> Result<ModelConfig, syn::Error> {
 fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
     let ident = field.ident.as_ref().unwrap().clone();
     let field_name = ident_name(&ident);
+    let attrs = field_attrs(field)?;
 
-    if let Some(has_many) = has_many_field(field, field_name.clone())? {
+    if let Some(has_many) = has_many_field(field, field_name.clone(), &attrs)? {
         return Ok(ModelFieldSpec::HasMany(has_many));
     }
 
@@ -199,13 +200,12 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
     let association_target = belongs_to_target_type(&field.ty)
         .or_else(|| optional_inner_ty.as_ref().and_then(belongs_to_target_type))
         .cloned();
-    let association_key = association_key_attr(field)?;
 
     if let Some(target) = association_target.as_ref() {
         validate_association_target_type(target)?;
     }
 
-    let storage_column_name = match (association_target.is_some(), association_key) {
+    let storage_column_name = match (association_target.is_some(), attrs.key) {
         (true, Some(key)) => key,
         (true, None) => format!("{field_name}_id"),
         (false, Some(_)) => {
@@ -223,6 +223,8 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
         field_name,
         query_variant: column_variant_ident_from_str(&storage_column_name),
         association_handler: association_handler_ident_from_str(&storage_column_name),
+        indexed: attrs.indexed,
+        unique: attrs.unique,
         storage_column_name,
         is_optional: optional_inner_ty.is_some(),
         optional_inner_ty,
@@ -233,6 +235,7 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
 fn has_many_field(
     field: &Field,
     field_name: String,
+    attrs: &FieldAttrs,
 ) -> Result<Option<HasManyFieldSpec>, syn::Error> {
     if let Some(inner) = option_inner_type(&field.ty)
         && has_many_type(inner)?.is_some()
@@ -246,13 +249,19 @@ fn has_many_field(
     let Some(child_ty) = has_many_type(&field.ty)? else {
         return Ok(None);
     };
-    let association_key = association_key_attr(field)?.ok_or_else(|| {
+    if attrs.indexed || attrs.unique {
+        return Err(syn::Error::new_spanned(
+            field,
+            "#[index] and #[unique] can only be used on stored fields, including BelongsTo fields",
+        ));
+    }
+    let association_key = attrs.key.as_ref().ok_or_else(|| {
         syn::Error::new_spanned(
             field,
             "HasMany fields must specify the child foreign key with #[key = owner_id]",
         )
     })?;
-    let association_handler = association_handler_ident_from_str(&association_key);
+    let association_handler = association_handler_ident_from_str(association_key);
 
     Ok(Some(HasManyFieldSpec {
         ident: field.ident.as_ref().unwrap().clone(),
@@ -302,43 +311,112 @@ fn has_many_type(ty: &Type) -> Result<Option<Type>, syn::Error> {
     Ok(Some(child_ty))
 }
 
-fn association_key_attr(field: &Field) -> Result<Option<String>, syn::Error> {
-    let mut key = None;
+#[derive(Default)]
+struct FieldAttrs {
+    key: Option<String>,
+    indexed: bool,
+    unique: bool,
+}
+
+fn field_attrs(field: &Field) -> Result<FieldAttrs, syn::Error> {
+    let mut attrs = FieldAttrs::default();
 
     for attr in &field.attrs {
         if attr.path().is_ident("key") {
-            if key.is_some() {
-                return Err(syn::Error::new_spanned(attr, "duplicate `key` attribute"));
-            }
+            set_key_attr(&mut attrs, attr, key_attr_value(attr)?)?;
+            continue;
+        }
 
-            let syn::Meta::NameValue(meta) = &attr.meta else {
+        if attr.path().is_ident("index") {
+            if !matches!(&attr.meta, syn::Meta::Path(_)) {
                 return Err(syn::Error::new_spanned(
                     attr,
-                    "association keys must be written as #[key = column_name]",
+                    "indexes must be written as #[index]",
                 ));
-            };
+            }
+            set_index_attr(&mut attrs, attr)?;
+            continue;
+        }
 
-            key = Some(key_name_from_expr(&meta.value)?);
+        if attr.path().is_ident("unique") {
+            if !matches!(&attr.meta, syn::Meta::Path(_)) {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "unique indexes must be written as #[unique]",
+                ));
+            }
+            set_unique_attr(&mut attrs, attr)?;
             continue;
         }
 
         if attr.path().is_ident("seekwel") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("key") {
-                    if key.is_some() {
-                        return Err(meta.error("duplicate `key` attribute"));
-                    }
                     let expr: Expr = meta.value()?.parse()?;
-                    key = Some(key_name_from_expr(&expr)?);
+                    set_key_attr(&mut attrs, meta.path, key_name_from_expr(&expr)?)?;
                     return Ok(());
                 }
 
-                Err(meta.error("unsupported seekwel field option; expected `key`"))
+                if meta.path.is_ident("index") {
+                    set_index_attr(&mut attrs, meta.path)?;
+                    return Ok(());
+                }
+
+                if meta.path.is_ident("unique") {
+                    set_unique_attr(&mut attrs, meta.path)?;
+                    return Ok(());
+                }
+
+                Err(meta.error(
+                    "unsupported seekwel field option; expected `key`, `index`, or `unique`",
+                ))
             })?;
         }
     }
 
-    Ok(key)
+    Ok(attrs)
+}
+
+fn key_attr_value(attr: &Attribute) -> Result<String, syn::Error> {
+    let syn::Meta::NameValue(meta) = &attr.meta else {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "association keys must be written as #[key = column_name]",
+        ));
+    };
+
+    key_name_from_expr(&meta.value)
+}
+
+fn set_key_attr(
+    attrs: &mut FieldAttrs,
+    span: impl quote::ToTokens,
+    value: String,
+) -> Result<(), syn::Error> {
+    if attrs.key.is_some() {
+        return Err(syn::Error::new_spanned(span, "duplicate `key` attribute"));
+    }
+    attrs.key = Some(value);
+    Ok(())
+}
+
+fn set_index_attr(attrs: &mut FieldAttrs, span: impl quote::ToTokens) -> Result<(), syn::Error> {
+    if attrs.indexed {
+        return Err(syn::Error::new_spanned(span, "duplicate `index` attribute"));
+    }
+    attrs.indexed = true;
+    Ok(())
+}
+
+fn set_unique_attr(attrs: &mut FieldAttrs, span: impl quote::ToTokens) -> Result<(), syn::Error> {
+    if attrs.unique {
+        return Err(syn::Error::new_spanned(
+            span,
+            "duplicate `unique` attribute",
+        ));
+    }
+    attrs.unique = true;
+    Ok(())
 }
 
 fn key_name_from_expr(expr: &Expr) -> Result<String, syn::Error> {

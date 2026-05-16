@@ -4,7 +4,7 @@ use crate::connection::{record_query, record_query_with_params};
 use crate::error::Error;
 
 use super::history;
-use super::types::{ColumnDef, PrimaryKeyDef, SchemaDef, SqlAffinity, TableDef};
+use super::types::{ColumnDef, IndexDef, PrimaryKeyDef, SchemaDef, SqlAffinity, TableDef};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ActualTable {
@@ -57,6 +57,7 @@ pub(crate) fn introspect_managed(
         };
 
         let column_rows = table_columns(conn, table_name)?;
+        let indexes = table_indexes(conn, table_name)?;
         let pk_count = column_rows.iter().filter(|column| column.pk > 0).count();
         let primary_key_column = column_rows.iter().find(|column| column.pk == 1);
         let primary_key_name = primary_key_column
@@ -141,6 +142,7 @@ pub(crate) fn introspect_managed(
                             nullable: !column.not_null,
                         })
                         .collect(),
+                    indexes,
                 },
                 unsupported_inline_features,
                 has_real_foreign_keys,
@@ -202,6 +204,67 @@ fn table_columns(conn: &rusqlite::Connection, table_name: &str) -> Result<Vec<Co
     Ok(columns)
 }
 
+#[derive(Debug)]
+struct IndexRow {
+    name: String,
+    unique: bool,
+    partial: bool,
+}
+
+fn table_indexes(conn: &rusqlite::Connection, table_name: &str) -> Result<Vec<IndexDef>, Error> {
+    let pragma = format!("PRAGMA index_list({})", pragma_string_arg(table_name));
+    record_query(&pragma);
+    let mut stmt = conn.prepare(&pragma).map_err(Error::Sqlite)?;
+    let rows = stmt
+        .query_map((), |row| {
+            Ok(IndexRow {
+                name: row.get(1)?,
+                unique: row.get::<_, i64>(2)? != 0,
+                partial: row.get::<_, i64>(4)? != 0,
+            })
+        })
+        .map_err(Error::Sqlite)?;
+
+    let mut indexes = Vec::new();
+    for row in rows {
+        let row = row.map_err(Error::Sqlite)?;
+        if !is_managed_index_name(&row.name) || row.partial {
+            continue;
+        }
+        let columns = index_columns(conn, &row.name)?;
+        if columns.len() != 1 {
+            continue;
+        }
+        indexes.push(IndexDef {
+            name: row.name,
+            column: columns.into_iter().next().unwrap(),
+            unique: row.unique,
+        });
+    }
+    Ok(indexes)
+}
+
+fn index_columns(conn: &rusqlite::Connection, index_name: &str) -> Result<Vec<String>, Error> {
+    let pragma = format!("PRAGMA index_info({})", pragma_string_arg(index_name));
+    record_query(&pragma);
+    let mut stmt = conn.prepare(&pragma).map_err(Error::Sqlite)?;
+    let rows = stmt
+        .query_map((), |row| row.get::<_, Option<String>>(2))
+        .map_err(Error::Sqlite)?;
+
+    let mut columns = Vec::new();
+    for row in rows {
+        if let Some(column) = row.map_err(Error::Sqlite)? {
+            columns.push(column);
+        }
+    }
+    Ok(columns)
+}
+
+fn is_managed_index_name(name: &str) -> bool {
+    name.starts_with("seekwel_idx_")
+}
+
 fn replayable_objects(
     conn: &rusqlite::Connection,
 ) -> Result<BTreeMap<String, Vec<ReplaySql>>, Error> {
@@ -228,7 +291,10 @@ fn replayable_objects(
             "trigger" => ReplayKind::Trigger,
             _ => continue,
         };
-        let _ = (name, kind);
+        if kind == ReplayKind::Index && is_managed_index_name(&name) {
+            continue;
+        }
+        let _ = name;
         objects
             .entry(table_name)
             .or_default()
