@@ -137,7 +137,9 @@ async fn create_person(
 }
 ```
 
-Bool params accept HTML checkbox-style values: `1`, `true`, `on`, and `yes` are true; `0`, `false`, `off`, and `no` are false. When an allowed non-optional bool param is omitted, create/update treats it as false.
+Bool params accept HTML checkbox-style values: `1`, `true`, `on`, and `yes` are true; `0`, `false`, `off`, and `no` are false. Duplicate scalar param keys use the last value, so the common hidden `0` plus checkbox `1` pattern works. When an allowed non-optional bool param is omitted, create/update treats it as false.
+
+Params also understand Rails-style bracketed arrays and maps such as `app[tags][]=ios` and `app[settings][region]=us`, passing lists and maps through serde into the field type.
 
 Association params use their stored column name, like `owner_id` for `owner: BelongsTo<Person>`. `HasMany` fields are not included in params.
 

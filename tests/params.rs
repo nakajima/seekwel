@@ -1,4 +1,8 @@
+#[cfg(feature = "serde")]
+use rusqlite::types::Value;
 use seekwel::BelongsTo;
+#[cfg(feature = "serde")]
+use seekwel::SqlField;
 use seekwel::connection::Connection;
 use seekwel::error::Error;
 use seekwel::prelude::*;
@@ -34,6 +38,105 @@ struct Todo {
     id: u64,
     title: String,
     done: bool,
+}
+
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, PartialEq, Eq, seekwel::__private::serde::Deserialize)]
+struct TagList(Vec<String>);
+
+#[cfg(feature = "serde")]
+impl SqlField for TagList {
+    const SQL_TYPE: &'static str = "TEXT";
+
+    fn to_sql_value(&self) -> Value {
+        Value::Text(self.0.join(","))
+    }
+
+    fn from_sql_row(row: &rusqlite::Row, index: usize) -> rusqlite::Result<Self> {
+        let raw: String = row.get(index)?;
+        Ok(Self(
+            raw.split(',')
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
+        ))
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, PartialEq, Eq, seekwel::__private::serde::Deserialize)]
+struct BuildSettings {
+    branch: String,
+    workflow: String,
+}
+
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, PartialEq, Eq, seekwel::__private::serde::Deserialize)]
+struct Deployment {
+    name: String,
+    target: String,
+}
+
+#[cfg(feature = "serde")]
+#[derive(Debug, Clone, PartialEq, Eq, seekwel::__private::serde::Deserialize)]
+struct DeploymentList(Vec<Deployment>);
+
+#[cfg(feature = "serde")]
+impl SqlField for BuildSettings {
+    const SQL_TYPE: &'static str = "TEXT";
+
+    fn to_sql_value(&self) -> Value {
+        Value::Text(format!("{}:{}", self.branch, self.workflow))
+    }
+
+    fn from_sql_row(row: &rusqlite::Row, index: usize) -> rusqlite::Result<Self> {
+        let raw: String = row.get(index)?;
+        let (branch, workflow) = raw.split_once(':').unwrap_or((raw.as_str(), ""));
+        Ok(Self {
+            branch: branch.to_string(),
+            workflow: workflow.to_string(),
+        })
+    }
+}
+
+#[cfg(feature = "serde")]
+impl SqlField for DeploymentList {
+    const SQL_TYPE: &'static str = "TEXT";
+
+    fn to_sql_value(&self) -> Value {
+        Value::Text(
+            self.0
+                .iter()
+                .map(|deployment| format!("{}:{}", deployment.name, deployment.target))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
+    fn from_sql_row(row: &rusqlite::Row, index: usize) -> rusqlite::Result<Self> {
+        let raw: String = row.get(index)?;
+        Ok(Self(
+            raw.split(',')
+                .filter(|value| !value.is_empty())
+                .map(|value| {
+                    let (name, target) = value.split_once(':').unwrap_or((value, ""));
+                    Deployment {
+                        name: name.to_string(),
+                        target: target.to_string(),
+                    }
+                })
+                .collect(),
+        ))
+    }
+}
+
+#[cfg(feature = "serde")]
+#[seekwel::model(table_name = "param_payloads")]
+struct ParamPayload {
+    id: u64,
+    tags: TagList,
+    settings: BuildSettings,
+    deployments: Option<DeploymentList>,
 }
 
 #[test]
@@ -185,11 +288,121 @@ fn params_deserialize_with_serde() -> Result<(), Error> {
         assert!(!draft.done, "expected {value:?} to deserialize as false");
     }
 
+    let deserializer = MapDeserializer::<_, DeError>::new(
+        [
+            ("todo[title]", "Checked"),
+            ("todo[done]", "0"),
+            ("todo[done]", "1"),
+        ]
+        .into_iter(),
+    );
+    let params = TodoParams::deserialize(deserializer).unwrap();
+    let draft = Todo::new(params.allow([TodoColumns::Title, TodoColumns::Done]))?;
+    assert!(draft.done);
+
     let deserializer =
         MapDeserializer::<_, DeError>::new([("todo[title]", "Unchecked")].into_iter());
     let params = TodoParams::deserialize(deserializer).unwrap();
     let draft = Todo::new(params.allow([TodoColumns::Title, TodoColumns::Done]))?;
     assert!(!draft.done);
+
+    let deserializer = MapDeserializer::<_, DeError>::new(
+        [
+            ("param_payload[tags][]", "ios"),
+            ("param_payload[tags][]", "testflight"),
+            ("param_payload[settings][branch]", "main"),
+            ("param_payload[settings][workflow]", "beta"),
+        ]
+        .into_iter(),
+    );
+    let params = ParamPayloadParams::deserialize(deserializer).unwrap();
+    let draft = ParamPayload::new(
+        params.allow([ParamPayloadColumns::Tags, ParamPayloadColumns::Settings]),
+    )?;
+    assert_eq!(
+        draft.tags,
+        TagList(vec!["ios".to_string(), "testflight".to_string()])
+    );
+    assert_eq!(
+        draft.settings,
+        BuildSettings {
+            branch: "main".to_string(),
+            workflow: "beta".to_string(),
+        }
+    );
+
+    let nested_payload =
+        seekwel::model::params::ParamValue::Map(std::collections::BTreeMap::from([
+            (
+                "tags".to_string(),
+                seekwel::model::params::ParamValue::List(vec![
+                    seekwel::model::params::ParamValue::new("mac"),
+                    seekwel::model::params::ParamValue::new("xcode"),
+                ]),
+            ),
+            (
+                "settings".to_string(),
+                seekwel::model::params::ParamValue::Map(std::collections::BTreeMap::from([
+                    (
+                        "branch".to_string(),
+                        seekwel::model::params::ParamValue::new("release"),
+                    ),
+                    (
+                        "workflow".to_string(),
+                        seekwel::model::params::ParamValue::new("ship"),
+                    ),
+                ])),
+            ),
+        ]));
+    let deserializer =
+        MapDeserializer::<_, DeError>::new([("param_payload", nested_payload)].into_iter());
+    let params = ParamPayloadParams::deserialize(deserializer).unwrap();
+    let draft = ParamPayload::new(
+        params.allow([ParamPayloadColumns::Tags, ParamPayloadColumns::Settings]),
+    )?;
+    assert_eq!(
+        draft.tags,
+        TagList(vec!["mac".to_string(), "xcode".to_string()])
+    );
+    assert_eq!(
+        draft.settings,
+        BuildSettings {
+            branch: "release".to_string(),
+            workflow: "ship".to_string(),
+        }
+    );
+
+    let deserializer = MapDeserializer::<_, DeError>::new(
+        [
+            ("param_payload[tags][]", "deploy"),
+            ("param_payload[settings][branch]", "main"),
+            ("param_payload[settings][workflow]", "deploy"),
+            ("param_payload[deployments][][name]", "beta"),
+            ("param_payload[deployments][][target]", "testflight"),
+            ("param_payload[deployments][][name]", "release"),
+            ("param_payload[deployments][][target]", "app-store"),
+        ]
+        .into_iter(),
+    );
+    let params = ParamPayloadParams::deserialize(deserializer).unwrap();
+    let draft = ParamPayload::new(params.allow([
+        ParamPayloadColumns::Tags,
+        ParamPayloadColumns::Settings,
+        ParamPayloadColumns::Deployments,
+    ]))?;
+    assert_eq!(
+        draft.deployments,
+        Some(DeploymentList(vec![
+            Deployment {
+                name: "beta".to_string(),
+                target: "testflight".to_string(),
+            },
+            Deployment {
+                name: "release".to_string(),
+                target: "app-store".to_string(),
+            },
+        ]))
+    );
 
     let deserializer = MapDeserializer::<_, DeError>::new([("todo[done]", "maybe")].into_iter());
     assert!(TodoParams::deserialize(deserializer).is_err());

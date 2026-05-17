@@ -114,11 +114,6 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         }
     };
 
-    #[cfg(feature = "serde")]
-    let params_derives = quote! {
-        #[derive(Clone, Default, seekwel::__private::serde::Deserialize)]
-    };
-    #[cfg(not(feature = "serde"))]
     let params_derives = quote! {
         #[derive(Clone, Default)]
     };
@@ -277,10 +272,21 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     let primary_key_params_field = if primary_key_auto_increment {
         quote! {}
     } else {
-        let params_serde_attr = params_serde_attr(&params_root_name, primary_key_name);
         quote! {
-            #params_serde_attr
             #primary_key_ident: seekwel::model::params::Param<#primary_key_ty>,
+        }
+    };
+    let _primary_key_params_deserialize_extract = if primary_key_auto_increment {
+        quote! {}
+    } else {
+        quote! {
+            if let Some(__seekwel_value) =
+                __seekwel_values.take_path(&[#params_root_name, #primary_key_name])
+            {
+                __seekwel_params.#primary_key_ident =
+                    seekwel::model::params::Param::<#primary_key_ty>::from_param_value(__seekwel_value)
+                        .map_err(seekwel::__private::serde::de::Error::custom)?;
+            }
         }
     };
     let primary_key_params_setter = if primary_key_auto_increment {
@@ -343,6 +349,7 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
     let mut params_setters = Vec::<proc_macro2::TokenStream>::new();
     let mut params_new_extracts = Vec::<proc_macro2::TokenStream>::new();
     let mut params_update_assignments = Vec::<proc_macro2::TokenStream>::new();
+    let mut params_deserialize_extracts = Vec::<proc_macro2::TokenStream>::new();
 
     for field in &stored_fields {
         let model_field_name = &field.ident;
@@ -354,11 +361,19 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         let param_field_name_str = field.storage_column_name.as_str();
         let column_variant = &field.query_variant;
         let ty = &field.ty;
-        let params_serde_attr = params_serde_attr(&params_root_name, param_field_name_str);
 
         params_fields.push(quote! {
-            #params_serde_attr
             #param_field_name: seekwel::model::params::Param<#ty>,
+        });
+
+        params_deserialize_extracts.push(quote! {
+            if let Some(__seekwel_value) =
+                __seekwel_values.take_path(&[#params_root_name, #param_field_name_str])
+            {
+                __seekwel_params.#param_field_name =
+                    seekwel::model::params::Param::<#ty>::from_param_value(__seekwel_value)
+                        .map_err(seekwel::__private::serde::de::Error::custom)?;
+            }
         });
 
         if field.is_optional {
@@ -440,6 +455,61 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             });
         }
     }
+
+    #[cfg(feature = "serde")]
+    let params_deserialize_impl = quote! {
+        impl<'de> seekwel::__private::serde::Deserialize<'de> for #params_name {
+            fn deserialize<__SeekwelDeserializer>(
+                __seekwel_deserializer: __SeekwelDeserializer,
+            ) -> Result<Self, __SeekwelDeserializer::Error>
+            where
+                __SeekwelDeserializer: seekwel::__private::serde::Deserializer<'de>,
+            {
+                struct __SeekwelParamsVisitor;
+
+                impl<'de> seekwel::__private::serde::de::Visitor<'de> for __SeekwelParamsVisitor {
+                    type Value = #params_name;
+
+                    fn expecting(
+                        &self,
+                        __seekwel_formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
+                        __seekwel_formatter.write_str("a params map")
+                    }
+
+                    fn visit_map<__SeekwelMap>(
+                        self,
+                        mut __seekwel_map: __SeekwelMap,
+                    ) -> Result<Self::Value, __SeekwelMap::Error>
+                    where
+                        __SeekwelMap: seekwel::__private::serde::de::MapAccess<'de>,
+                    {
+                        let mut __seekwel_values = seekwel::model::params::ParamValue::map();
+
+                        while let Some(__seekwel_key) =
+                            __seekwel_map.next_key::<std::string::String>()?
+                        {
+                            let __seekwel_value =
+                                __seekwel_map.next_value::<seekwel::model::params::ParamValue>()?;
+                            __seekwel_values
+                                .insert_entry(&__seekwel_key, __seekwel_value)
+                                .map_err(seekwel::__private::serde::de::Error::custom)?;
+                        }
+
+                        let mut __seekwel_params = #params_name::default();
+                        #_primary_key_params_deserialize_extract
+                        #(#params_deserialize_extracts)*
+
+                        Ok(__seekwel_params)
+                    }
+                }
+
+                __seekwel_deserializer.deserialize_map(__SeekwelParamsVisitor)
+            }
+        }
+    };
+    #[cfg(not(feature = "serde"))]
+    let params_deserialize_impl = quote! {};
 
     let new_record_field_inits: Vec<_> = spec
         .fields
@@ -691,6 +761,8 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 <Self as seekwel::model::Params>::allow_all(self)
             }
         }
+
+        #params_deserialize_impl
 
         impl seekwel::model::Params for #params_name {
             type Model = #name<seekwel::Persisted>;
@@ -1111,17 +1183,6 @@ fn sanitize_index_name_part(value: &str) -> String {
         output.push_str("value");
     }
     output
-}
-
-#[cfg(feature = "serde")]
-fn params_serde_attr(root: &str, column: &str) -> proc_macro2::TokenStream {
-    let name = format!("{root}[{column}]");
-    quote! { #[serde(default, rename = #name)] }
-}
-
-#[cfg(not(feature = "serde"))]
-fn params_serde_attr(_root: &str, _column: &str) -> proc_macro2::TokenStream {
-    quote! {}
 }
 
 fn default_params_root_name(table_name: &str) -> String {
