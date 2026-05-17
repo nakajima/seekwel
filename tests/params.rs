@@ -29,12 +29,20 @@ struct App {
     name: String,
 }
 
+#[seekwel::model]
+struct Todo {
+    id: u64,
+    title: String,
+    done: bool,
+}
+
 #[test]
 fn params_create_and_update_only_allowed_columns() -> Result<(), Error> {
     Connection::memory()?;
     Person::create_table()?;
     Pet::create_table()?;
     ManualPerson::create_table()?;
+    Todo::create_table()?;
 
     let draft = Person::new(
         PersonParams::new()
@@ -66,6 +74,25 @@ fn params_create_and_update_only_allowed_columns() -> Result<(), Error> {
     let refreshed = Person::find(person.id)?;
     assert_eq!(refreshed.name, "Pat");
     assert_eq!(refreshed.age, Some(21));
+
+    let mut todo = Todo::create(
+        TodoParams::new()
+            .title("Ship it")
+            .allow([TodoColumns::Title, TodoColumns::Done]),
+    )?;
+    assert!(!todo.done);
+
+    todo.update(TodoParams::new().done(true).allow([TodoColumns::Done]))?;
+    assert!(todo.done);
+
+    todo.update(TodoParams::new().allow([TodoColumns::Done]))?;
+    assert!(!todo.done);
+    assert!(!Todo::find(todo.id)?.done);
+
+    assert!(matches!(
+        Todo::new(TodoParams::new().title("No done").allow([TodoColumns::Title])),
+        Err(Error::MissingField(field)) if field == "done"
+    ));
 
     let pet = Pet::create(
         PetParams::new()
@@ -125,18 +152,47 @@ fn params_deserialize_with_serde() -> Result<(), Error> {
         Err(Error::MissingField(field)) if field == "name"
     ));
 
-    let deserializer = MapDeserializer::<_, DeError>::new([("person[name]", "Sam")].into_iter());
+    let deserializer = MapDeserializer::<_, DeError>::new(
+        [("person[name]", "Sam"), ("person[age]", "42")].into_iter(),
+    );
     let params = PersonParams::deserialize(deserializer).unwrap();
-    let draft = Person::new(params.allow([PersonColumns::Name]))?;
+    let draft = Person::new(params.allow([PersonColumns::Name, PersonColumns::Age]))?;
 
     assert_eq!(draft.name, "Sam");
-    assert_eq!(draft.age, None);
+    assert_eq!(draft.age, Some(42));
 
     let deserializer = MapDeserializer::<_, DeError>::new([("app[name]", "Calendar")].into_iter());
     let params = AppParams::deserialize(deserializer).unwrap();
     let draft = App::new(params.allow([AppColumns::Name]))?;
 
     assert_eq!(draft.name, "Calendar");
+
+    for value in ["1", "true", "on", "yes", "TRUE", "YES"] {
+        let deserializer = MapDeserializer::<_, DeError>::new(
+            [("todo[title]", "Truthy"), ("todo[done]", value)].into_iter(),
+        );
+        let params = TodoParams::deserialize(deserializer).unwrap();
+        let draft = Todo::new(params.allow([TodoColumns::Title, TodoColumns::Done]))?;
+        assert!(draft.done, "expected {value:?} to deserialize as true");
+    }
+
+    for value in ["0", "false", "off", "no", "FALSE", "NO"] {
+        let deserializer = MapDeserializer::<_, DeError>::new(
+            [("todo[title]", "Falsy"), ("todo[done]", value)].into_iter(),
+        );
+        let params = TodoParams::deserialize(deserializer).unwrap();
+        let draft = Todo::new(params.allow([TodoColumns::Title, TodoColumns::Done]))?;
+        assert!(!draft.done, "expected {value:?} to deserialize as false");
+    }
+
+    let deserializer =
+        MapDeserializer::<_, DeError>::new([("todo[title]", "Unchecked")].into_iter());
+    let params = TodoParams::deserialize(deserializer).unwrap();
+    let draft = Todo::new(params.allow([TodoColumns::Title, TodoColumns::Done]))?;
+    assert!(!draft.done);
+
+    let deserializer = MapDeserializer::<_, DeError>::new([("todo[done]", "maybe")].into_iter());
+    assert!(TodoParams::deserialize(deserializer).is_err());
 
     Ok(())
 }

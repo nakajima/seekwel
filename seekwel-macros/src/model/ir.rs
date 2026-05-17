@@ -55,6 +55,7 @@ pub(crate) struct StoredFieldSpec {
     pub(crate) indexed: bool,
     pub(crate) unique: bool,
     pub(crate) is_optional: bool,
+    pub(crate) is_bool: bool,
     pub(crate) optional_inner_ty: Option<Type>,
     pub(crate) association_target: Option<Type>,
 }

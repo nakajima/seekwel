@@ -227,6 +227,7 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
         unique: attrs.unique,
         storage_column_name,
         is_optional: optional_inner_ty.is_some(),
+        is_bool: is_bool_type(&field.ty),
         optional_inner_ty,
         association_target,
     }))
@@ -499,6 +500,10 @@ fn is_supported_primary_key_type(ty: &Type) -> bool {
 
 fn is_option_type(ty: &Type) -> bool {
     option_inner_type(ty).is_some()
+}
+
+fn is_bool_type(ty: &Type) -> bool {
+    matches!(quote::quote!(#ty).to_string().as_str(), "bool")
 }
 
 fn option_inner_type(ty: &Type) -> Option<&Type> {

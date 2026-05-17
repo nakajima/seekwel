@@ -137,6 +137,8 @@ async fn create_person(
 }
 ```
 
+Bool params accept HTML checkbox-style values: `1`, `true`, `on`, and `yes` are true; `0`, `false`, `off`, and `no` are false. When an allowed non-optional bool param is omitted, create/update treats it as false.
+
 Association params use their stored column name, like `owner_id` for `owner: BelongsTo<Person>`. `HasMany` fields are not included in params.
 
 ### validations

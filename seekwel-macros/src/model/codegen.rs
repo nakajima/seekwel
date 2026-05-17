@@ -402,25 +402,43 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                     self
                 }
             });
-            params_new_extracts.push(quote! {
-                let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
-                    __seekwel_params
-                        .#param_field_name
-                        .into_value()
-                        .ok_or_else(|| seekwel::error::Error::MissingField(#param_field_name_str.to_string()))?
-                } else {
-                    return Err(seekwel::error::Error::MissingField(#param_field_name_str.to_string()));
-                };
-            });
+            if field.is_bool {
+                params_new_extracts.push(quote! {
+                    let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
+                        __seekwel_params.#param_field_name.into_value().unwrap_or(false)
+                    } else {
+                        return Err(seekwel::error::Error::MissingField(#param_field_name_str.to_string()));
+                    };
+                });
+            } else {
+                params_new_extracts.push(quote! {
+                    let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
+                        __seekwel_params
+                            .#param_field_name
+                            .into_value()
+                            .ok_or_else(|| seekwel::error::Error::MissingField(#param_field_name_str.to_string()))?
+                    } else {
+                        return Err(seekwel::error::Error::MissingField(#param_field_name_str.to_string()));
+                    };
+                });
+            }
         }
 
-        params_update_assignments.push(quote! {
-            if __seekwel_is_allowed(#columns_name::#column_variant) {
-                if let Some(__seekwel_value) = __seekwel_params.#param_field_name.into_value() {
-                    self.#model_field_name = __seekwel_value;
+        if field.is_bool {
+            params_update_assignments.push(quote! {
+                if __seekwel_is_allowed(#columns_name::#column_variant) {
+                    self.#model_field_name = __seekwel_params.#param_field_name.into_value().unwrap_or(false);
                 }
-            }
-        });
+            });
+        } else {
+            params_update_assignments.push(quote! {
+                if __seekwel_is_allowed(#columns_name::#column_variant) {
+                    if let Some(__seekwel_value) = __seekwel_params.#param_field_name.into_value() {
+                        self.#model_field_name = __seekwel_value;
+                    }
+                }
+            });
+        }
     }
 
     let new_record_field_inits: Vec<_> = spec
