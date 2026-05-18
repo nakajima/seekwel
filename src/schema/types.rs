@@ -2,7 +2,7 @@ use std::fmt::{self, Write};
 
 use crate::error::Error;
 
-pub(crate) const ARTIFACT_VERSION: u32 = 1;
+pub(crate) const ARTIFACT_VERSION: u32 = 2;
 pub(crate) const HISTORY_TABLE: &str = "_seekwel_schema_history";
 
 /// A normalized schema snapshot for seekwel-managed tables.
@@ -85,11 +85,12 @@ impl SchemaDef {
             for column in &table.columns {
                 let _ = writeln!(
                     &mut out,
-                    "column\t{}\t{}\t{}\t{}",
+                    "column\t{}\t{}\t{}\t{}\t{}",
                     table.name,
                     column.name,
                     column.sql_type,
-                    u8::from(column.nullable)
+                    u8::from(column.nullable),
+                    column.default_sql.as_deref().unwrap_or("")
                 );
             }
             for index in &table.indexes {
@@ -154,6 +155,7 @@ impl SchemaDef {
                     let nullable = parts.next().ok_or_else(|| {
                         Error::InvalidSchema("history row is missing column nullability".into())
                     })?;
+                    let default_sql = parts.next();
                     if parts.next().is_some() {
                         return Err(Error::InvalidSchema(format!(
                             "history column row for `{table_name}.{column_name}` has trailing data"
@@ -179,6 +181,9 @@ impl SchemaDef {
                                 )));
                             }
                         },
+                        default_sql: default_sql
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_string),
                     });
                 }
                 "index" => {
@@ -280,6 +285,8 @@ pub struct ColumnDef {
     pub sql_type: String,
     /// Whether the column may store `NULL`.
     pub nullable: bool,
+    /// The SQLite default expression emitted in DDL, if any.
+    pub default_sql: Option<String>,
 }
 
 impl ColumnDef {

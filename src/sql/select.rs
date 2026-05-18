@@ -249,11 +249,13 @@ mod tests {
                 name: "name",
                 sql_type: "TEXT",
                 nullable: false,
+                default_sql: None,
             },
             ColumnDef {
                 name: "age",
                 sql_type: "INTEGER",
                 nullable: true,
+                default_sql: None,
             },
         ]
     }

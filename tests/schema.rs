@@ -20,11 +20,23 @@ mod required_column {
     }
 }
 
+mod default_required_column {
+    #[seekwel::model]
+    pub struct Person {
+        pub id: u64,
+        pub name: String,
+        #[default = false]
+        pub archived: bool,
+    }
+}
+
 mod v2 {
     #[seekwel::model]
     pub struct Person {
         pub id: u64,
         pub name: String,
+        #[default = false]
+        pub archived: bool,
         pub age: Option<u8>,
     }
 }
@@ -60,6 +72,22 @@ fn schema_builder_plans_and_applies_safe_and_destructive_changes() -> Result<(),
             if table == "person" && column == "age"
     ));
 
+    let default_plan = SchemaBuilder::new()
+        .model::<default_required_column::Person>()
+        .plan()?;
+    assert!(default_plan.blockers.is_empty());
+    assert!(default_plan.ops.iter().any(|op| {
+        matches!(
+            op,
+            PlanOp::AddColumn { table, column }
+                if table == "person" && column.name == "archived" && column.default_sql.as_deref() == Some("0")
+        )
+    }));
+    default_plan.apply(ApplyMode::SafeOnly)?;
+
+    let after_default = default_required_column::Person::find(created.id)?;
+    assert!(!after_default.archived);
+
     let add_plan = SchemaBuilder::new().model::<v2::Person>().plan()?;
     assert!(add_plan.blockers.is_empty());
     assert!(add_plan.ops.iter().any(|op| {
@@ -73,6 +101,7 @@ fn schema_builder_plans_and_applies_safe_and_destructive_changes() -> Result<(),
 
     let after_add = v2::Person::find(created.id)?;
     assert_eq!(after_add.age, None);
+    assert!(!after_add.archived);
 
     let rebuild_plan = SchemaBuilder::new().model::<v3::Person>().plan()?;
     assert!(rebuild_plan.blockers.is_empty());

@@ -220,6 +220,11 @@ pub enum RebuildReason {
         from_nullable: bool,
         to_nullable: bool,
     },
+    ChangeDefault {
+        column: String,
+        from_default_sql: Option<String>,
+        to_default_sql: Option<String>,
+    },
 }
 
 impl RebuildReason {
@@ -258,6 +263,16 @@ impl RebuildReason {
                 json_escape(column),
                 from_nullable,
                 to_nullable
+            ),
+            Self::ChangeDefault {
+                column,
+                from_default_sql,
+                to_default_sql,
+            } => format!(
+                "{{\"kind\":\"change_default\",\"column\":\"{}\",\"from_default_sql\":{},\"to_default_sql\":{}}}",
+                json_escape(column),
+                optional_string_json(from_default_sql.as_deref()),
+                optional_string_json(to_default_sql.as_deref())
             ),
         }
     }
@@ -346,11 +361,19 @@ fn table_json(table: &TableDef) -> String {
 
 fn column_json(column: &ColumnDef) -> String {
     format!(
-        "{{\"name\":\"{}\",\"sql_type\":\"{}\",\"nullable\":{}}}",
+        "{{\"name\":\"{}\",\"sql_type\":\"{}\",\"nullable\":{},\"default_sql\":{}}}",
         json_escape(&column.name),
         json_escape(&column.sql_type),
-        column.nullable
+        column.nullable,
+        optional_string_json(column.default_sql.as_deref())
     )
+}
+
+fn optional_string_json(value: Option<&str>) -> String {
+    match value {
+        Some(value) => format!("\"{}\"", json_escape(value)),
+        None => "null".to_string(),
+    }
 }
 
 fn index_json(index: &IndexDef) -> String {

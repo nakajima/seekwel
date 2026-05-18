@@ -4,11 +4,15 @@ pub(crate) fn column_definitions(columns: &[ColumnDef]) -> String {
     columns
         .iter()
         .map(|column| {
-            if column.nullable {
-                format!("{} {}", column.name, column.sql_type)
-            } else {
-                format!("{} {} NOT NULL", column.name, column.sql_type)
+            let mut definition = format!("{} {}", column.name, column.sql_type);
+            if !column.nullable {
+                definition.push_str(" NOT NULL");
             }
+            if let Some(default_sql) = column.default_sql {
+                definition.push_str(" DEFAULT ");
+                definition.push_str(default_sql);
+            }
+            definition
         })
         .collect::<Vec<_>>()
         .join(", ")

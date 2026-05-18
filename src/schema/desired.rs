@@ -60,6 +60,7 @@ pub(crate) fn table_for_model<M: model::Model>() -> TableDef {
                 name: column.name.to_string(),
                 sql_type: column.sql_type.to_string(),
                 nullable: column.nullable,
+                default_sql: column.default_sql.map(str::to_string),
             })
             .collect(),
         indexes: M::indexes()

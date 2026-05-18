@@ -50,8 +50,14 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
         .map(|field| {
             let column_name = field.storage_column_name.as_str();
             let ty = &field.ty;
-            quote! {
-                seekwel::model::column::<#ty>(#column_name)
+            if let Some(default_sql) = field.default_sql.as_deref() {
+                quote! {
+                    seekwel::model::column_with_default::<#ty>(#column_name, #default_sql)
+                }
+            } else {
+                quote! {
+                    seekwel::model::column::<#ty>(#column_name)
+                }
             }
         })
         .collect();

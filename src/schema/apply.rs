@@ -306,11 +306,15 @@ fn render_copy_sql(
 }
 
 fn render_column_definition(column: &ColumnDef) -> String {
-    if column.nullable {
-        format!("{} {}", quote_ident(&column.name), column.sql_type)
-    } else {
-        format!("{} {} NOT NULL", quote_ident(&column.name), column.sql_type)
+    let mut definition = format!("{} {}", quote_ident(&column.name), column.sql_type);
+    if !column.nullable {
+        definition.push_str(" NOT NULL");
     }
+    if let Some(default_sql) = &column.default_sql {
+        definition.push_str(" DEFAULT ");
+        definition.push_str(default_sql);
+    }
+    definition
 }
 
 fn quote_ident(identifier: &str) -> String {

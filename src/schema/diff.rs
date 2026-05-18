@@ -80,7 +80,7 @@ pub(crate) fn diff(
         for (name, desired_column) in &desired_columns {
             match actual_columns.get(name) {
                 None => {
-                    if desired_column.nullable {
+                    if desired_column.nullable || desired_column.default_sql.is_some() {
                         add_columns.push((*desired_column).clone());
                     } else {
                         blockers.push(PlanBlocker::RequiredColumnAddition {
@@ -102,6 +102,13 @@ pub(crate) fn diff(
                             column: (*name).to_string(),
                             from_nullable: actual_column.nullable,
                             to_nullable: desired_column.nullable,
+                        });
+                    }
+                    if desired_column.default_sql != actual_column.default_sql {
+                        rebuild_reasons.push(RebuildReason::ChangeDefault {
+                            column: (*name).to_string(),
+                            from_default_sql: actual_column.default_sql.clone(),
+                            to_default_sql: desired_column.default_sql.clone(),
                         });
                     }
                 }
@@ -293,11 +300,13 @@ mod tests {
                         name: "label".to_string(),
                         sql_type: "TEXT".to_string(),
                         nullable: true,
+                        default_sql: None,
                     },
                     ColumnDef {
                         name: "label".to_string(),
                         sql_type: "TEXT".to_string(),
                         nullable: true,
+                        default_sql: None,
                     },
                 ],
                 indexes: Vec::new(),

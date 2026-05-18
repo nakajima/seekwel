@@ -60,11 +60,13 @@ mod tests {
                 name: "name",
                 sql_type: "TEXT",
                 nullable: false,
+                default_sql: None,
             },
             ColumnDef {
                 name: "age",
                 sql_type: "INTEGER",
                 nullable: true,
+                default_sql: None,
             },
         ]
     }
@@ -82,6 +84,23 @@ mod tests {
         assert_eq!(
             create_table("person", primary_key("id"), test_columns()),
             "CREATE TABLE IF NOT EXISTS person (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER)"
+        );
+    }
+
+    #[test]
+    fn create_table_renders_column_defaults() {
+        assert_eq!(
+            create_table(
+                "person",
+                primary_key("id"),
+                &[ColumnDef {
+                    name: "active",
+                    sql_type: "INTEGER",
+                    nullable: false,
+                    default_sql: Some("0"),
+                }],
+            ),
+            "CREATE TABLE IF NOT EXISTS person (id INTEGER PRIMARY KEY, active INTEGER NOT NULL DEFAULT 0)"
         );
     }
 

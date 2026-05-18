@@ -86,13 +86,6 @@ pub(crate) fn introspect_managed(
             unsupported_inline_features
                 .push("generated or hidden columns are not supported".into());
         }
-        if column_rows
-            .iter()
-            .any(|column| column.name != primary_key_name && column.default_sql.is_some())
-        {
-            unsupported_inline_features.push("default column values are not supported".into());
-        }
-
         let normalized_sql = table_sql.to_ascii_uppercase();
         if normalized_sql.contains("CHECK") {
             unsupported_inline_features.push("CHECK constraints are not supported".into());
@@ -140,6 +133,7 @@ pub(crate) fn introspect_managed(
                             name: column.name,
                             sql_type: column.sql_type,
                             nullable: !column.not_null,
+                            default_sql: column.default_sql,
                         })
                         .collect(),
                     indexes,

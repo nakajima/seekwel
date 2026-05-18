@@ -191,6 +191,11 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
     let ident = field.ident.as_ref().unwrap().clone();
     let field_name = ident_name(&ident);
     let attrs = field_attrs(field)?;
+    let default_sql = attrs
+        .default_value
+        .as_ref()
+        .map(default_sql_from_expr)
+        .transpose()?;
 
     if let Some(has_many) = has_many_field(field, field_name.clone(), &attrs)? {
         return Ok(ModelFieldSpec::HasMany(has_many));
@@ -226,6 +231,7 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
         indexed: attrs.indexed,
         unique: attrs.unique,
         default_value: attrs.default_value,
+        default_sql,
         storage_column_name,
         is_optional: optional_inner_ty.is_some(),
         is_bool: is_bool_type(&field.ty),
@@ -457,6 +463,70 @@ fn set_default_attr(
     }
     attrs.default_value = Some(value);
     Ok(())
+}
+
+fn default_sql_from_expr(expr: &Expr) -> Result<String, syn::Error> {
+    let unsupported = || {
+        syn::Error::new_spanned(
+            expr,
+            "defaults must be SQLite literal values: booleans, numbers, strings, None, or Some(value)",
+        )
+    };
+
+    match expr {
+        Expr::Lit(expr_lit) => default_sql_from_lit(&expr_lit.lit),
+        Expr::Paren(paren) => default_sql_from_expr(&paren.expr),
+        Expr::Group(group) => default_sql_from_expr(&group.expr),
+        Expr::Unary(unary) if matches!(unary.op, syn::UnOp::Neg(_)) => {
+            let inner = default_sql_from_expr(&unary.expr)?;
+            if inner.starts_with('-') || inner.starts_with('\'') || inner == "NULL" {
+                return Err(unsupported());
+            }
+            Ok(format!("-{inner}"))
+        }
+        Expr::Path(path) if path.path.is_ident("None") => Ok("NULL".to_string()),
+        Expr::Call(call) if call.func.is_some_ident("Some") && call.args.len() == 1 => {
+            default_sql_from_expr(call.args.first().unwrap())
+        }
+        _ => Err(unsupported()),
+    }
+}
+
+fn default_sql_from_lit(lit: &Lit) -> Result<String, syn::Error> {
+    match lit {
+        Lit::Bool(value) => Ok(if value.value() { "1" } else { "0" }.to_string()),
+        Lit::Int(value) => Ok(value.base10_digits().to_string()),
+        Lit::Float(value) => Ok(value.base10_digits().to_string()),
+        Lit::Str(value) => Ok(sql_string_literal(&value.value())),
+        Lit::Char(value) => Ok(sql_string_literal(&value.value().to_string())),
+        _ => Err(syn::Error::new_spanned(
+            lit,
+            "defaults must be SQLite literal values: booleans, numbers, strings, None, or Some(value)",
+        )),
+    }
+}
+
+fn sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+trait ExprExt {
+    fn is_some_ident(&self, ident: &str) -> bool;
+}
+
+impl ExprExt for Expr {
+    fn is_some_ident(&self, ident: &str) -> bool {
+        matches!(
+            self,
+            Expr::Path(path)
+                if path.qself.is_none()
+                    && path.path.leading_colon.is_none()
+                    && path.path.segments.len() == 1
+                    && path.path.segments.first().is_some_and(|segment| {
+                        segment.ident == ident && matches!(segment.arguments, PathArguments::None)
+                    })
+        )
+    }
 }
 
 fn key_name_from_expr(expr: &Expr) -> Result<String, syn::Error> {

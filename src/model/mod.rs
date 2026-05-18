@@ -30,7 +30,7 @@ pub use query::{
 };
 pub use sql_field::SqlField;
 #[doc(hidden)]
-pub use sql_field::{column, index};
+pub use sql_field::{column, column_with_default, index};
 pub use validation::{
     CreateOrUpdateError, Errors, Invalid, InvalidModel, NoValidation, SaveError, ValidationError,
     Validator,
@@ -45,6 +45,8 @@ pub struct ColumnDef {
     pub sql_type: &'static str,
     /// Whether the column may store `NULL`.
     pub nullable: bool,
+    /// The SQLite default expression emitted in DDL, if any.
+    pub default_sql: Option<&'static str>,
 }
 
 /// Describes a single-column SQLite index for a model.

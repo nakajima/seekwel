@@ -77,6 +77,20 @@ pub const fn column<T: SqlField>(name: &'static str) -> ColumnDef {
         name,
         sql_type: T::SQL_TYPE,
         nullable: T::NULLABLE,
+        default_sql: None,
+    }
+}
+
+#[doc(hidden)]
+pub const fn column_with_default<T: SqlField>(
+    name: &'static str,
+    default_sql: &'static str,
+) -> ColumnDef {
+    ColumnDef {
+        name,
+        sql_type: T::SQL_TYPE,
+        nullable: T::NULLABLE,
+        default_sql: Some(default_sql),
     }
 }
 
