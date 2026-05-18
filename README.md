@@ -63,6 +63,7 @@ Person::create_table()?;
 ```
 
 Use `#[index]` and `#[unique]` on stored fields when the generated table should create a single-column index or unique index.
+Use `#[default = value]` when generated builders and create params should fill a missing field with a Rust-side default value.
 
 ```rs
 #[seekwel::model]
@@ -72,8 +73,12 @@ struct User {
     name: String,
     #[unique]
     email: String,
+    #[default = true]
+    active: bool,
 }
 ```
+
+`#[default = value]` affects generated Rust construction only; it does not add a SQLite `DEFAULT` clause to the column.
 
 ### create and persist records
 

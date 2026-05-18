@@ -106,6 +106,9 @@ fn normalize_field_attrs(fields: &mut syn::FieldsNamed) -> syn::Result<()> {
                     ));
                 }
                 attrs.push(parse_quote!(#[seekwel(unique)]));
+            } else if attr.path().is_ident("default") {
+                let value = default_attr_value(&attr)?;
+                attrs.push(parse_quote!(#[seekwel(default = #value)]));
             } else {
                 attrs.push(attr);
             }
@@ -125,6 +128,17 @@ fn key_attr_value(attr: &Attribute) -> syn::Result<String> {
     };
 
     key_name_from_expr(&meta.value)
+}
+
+fn default_attr_value(attr: &Attribute) -> syn::Result<Expr> {
+    let syn::Meta::NameValue(meta) = &attr.meta else {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "defaults must be written as #[default = value]",
+        ));
+    };
+
+    Ok(meta.value.clone())
 }
 
 fn key_name_from_expr(expr: &Expr) -> syn::Result<String> {

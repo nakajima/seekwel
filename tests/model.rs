@@ -12,6 +12,17 @@ struct Person {
     age: Option<u8>,
 }
 
+#[seekwel::model(table_name = "defaulted_person")]
+struct DefaultedPerson {
+    id: u64,
+    #[default = "Anonymous"]
+    name: String,
+    #[default = 18]
+    age: u8,
+    #[default = Some(7)]
+    score: Option<u8>,
+}
+
 fn expect_new_record(_: &Person<seekwel::NewRecord>) {}
 fn expect_persisted(_: &Person) {}
 
@@ -74,6 +85,50 @@ fn builder_create_or_update_by_rejects_empty_lookup() -> Result<(), Error> {
 
         Ok(())
     })
+}
+
+#[test]
+fn builder_uses_default_attributes_for_missing_fields() -> Result<(), Error> {
+    let _guard = MODEL_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap();
+
+    match Connection::memory() {
+        Ok(()) | Err(Error::AlreadyInitialized) => {}
+        Err(error) => return Err(error),
+    }
+
+    DefaultedPerson::create_table()?;
+    Connection::get()?.execute("DELETE FROM defaulted_person", ())?;
+
+    let draft = DefaultedPerson::builder().build()?;
+    assert_eq!(draft.name, "Anonymous");
+    assert_eq!(draft.age, 18);
+    assert_eq!(draft.score, Some(7));
+
+    let explicit_none = DefaultedPerson::builder().score(None).build()?;
+    assert_eq!(explicit_none.score, None);
+
+    let pat = DefaultedPerson::builder()
+        .name("Pat")
+        .age(20)
+        .score(Some(1))
+        .create()?;
+    let updated = DefaultedPerson::builder()
+        .name("Pat")
+        .create_or_update_by([DefaultedPersonColumns::Name])?;
+    assert_eq!(updated.id, pat.id);
+    assert_eq!(updated.age, 20);
+    assert_eq!(updated.score, Some(1));
+
+    let anonymous =
+        DefaultedPerson::builder().create_or_update_by([DefaultedPersonColumns::Name])?;
+    assert_eq!(anonymous.name, "Anonymous");
+    assert_eq!(anonymous.age, 18);
+    assert_eq!(anonymous.score, Some(7));
+
+    Ok(())
 }
 
 #[test]

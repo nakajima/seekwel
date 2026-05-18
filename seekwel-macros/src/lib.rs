@@ -7,7 +7,7 @@ pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
     model::expand_model_attribute(attr, item)
 }
 
-#[proc_macro_derive(Model, attributes(seekwel, key, index, unique))]
+#[proc_macro_derive(Model, attributes(seekwel, key, index, unique, default))]
 pub fn derive_model(input: TokenStream) -> TokenStream {
     model::expand_model_derive(input)
 }

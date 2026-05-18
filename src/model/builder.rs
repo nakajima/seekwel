@@ -27,6 +27,11 @@ impl<T> Required<T> {
     pub fn finish(self, field: &'static str) -> Result<T, Error> {
         self.0.ok_or_else(|| Error::MissingField(field.to_string()))
     }
+
+    /// Finishes the field, using `default` if it was never set.
+    pub fn finish_with(self, default: impl FnOnce() -> T) -> T {
+        self.0.unwrap_or_else(default)
+    }
 }
 
 /// Tracks whether an optional builder field has been explicitly set.
@@ -53,5 +58,10 @@ impl<T> Optional<T> {
     /// Finishes the field, defaulting to `None` if it was never set.
     pub fn finish(self) -> Option<T> {
         self.0.unwrap_or(None)
+    }
+
+    /// Finishes the field, using `default` if it was never set.
+    pub fn finish_with(self, default: impl FnOnce() -> Option<T>) -> Option<T> {
+        self.0.unwrap_or_else(default)
     }
 }

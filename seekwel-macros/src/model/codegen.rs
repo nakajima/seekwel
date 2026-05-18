@@ -179,7 +179,16 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                     }
                 });
             }
-            build_extracts.push(quote! { let #field_name = self.#field_name.finish(); });
+            if let Some(default_value) = field.default_value.as_ref() {
+                let ty = &field.ty;
+                build_extracts.push(quote! {
+                    let #field_name = self.#field_name.finish_with(|| {
+                        ::std::convert::Into::<#ty>::into(#default_value)
+                    });
+                });
+            } else {
+                build_extracts.push(quote! { let #field_name = self.#field_name.finish(); });
+            }
         } else {
             let ty = &field.ty;
             builder_setters.push(quote! {
@@ -189,9 +198,17 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                     self
                 }
             });
-            build_extracts.push(quote! {
-                let #field_name = self.#field_name.finish(#field_name_str)?;
-            });
+            if let Some(default_value) = field.default_value.as_ref() {
+                build_extracts.push(quote! {
+                    let #field_name = self.#field_name.finish_with(|| {
+                        ::std::convert::Into::<#ty>::into(#default_value)
+                    });
+                });
+            } else {
+                build_extracts.push(quote! {
+                    let #field_name = self.#field_name.finish(#field_name_str)?;
+                });
+            }
         }
     }
 
@@ -227,7 +244,21 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
             let field_name_str = field.field_name.as_str();
             let column_variant = &field.query_variant;
 
-            if field.is_optional {
+            if let Some(default_value) = field.default_value.as_ref() {
+                let ty = &field.ty;
+                quote! {
+                    #columns_name::#column_variant => {
+                        let __seekwel_value = self.#field_name.as_ref().cloned().unwrap_or_else(|| {
+                            ::std::convert::Into::<#ty>::into(#default_value)
+                        });
+                        __seekwel_query = seekwel::model::QueryDsl::q(
+                            __seekwel_query,
+                            #columns_name::#column_variant,
+                            seekwel::Comparison::Eq(__seekwel_value),
+                        );
+                    }
+                }
+            } else if field.is_optional {
                 quote! {
                     #columns_name::#column_variant => {
                         let __seekwel_value = self.#field_name.as_ref().cloned().unwrap_or(None);
@@ -402,13 +433,6 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                     }
                 });
             }
-            params_new_extracts.push(quote! {
-                let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
-                    __seekwel_params.#param_field_name.into_value().unwrap_or(None)
-                } else {
-                    None
-                };
-            });
         } else {
             params_setters.push(quote! {
                 #[doc = concat!("Sets the `", #param_field_name_str, "` params field.")]
@@ -417,26 +441,45 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                     self
                 }
             });
-            if field.is_bool {
-                params_new_extracts.push(quote! {
-                    let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
-                        __seekwel_params.#param_field_name.into_value().unwrap_or(false)
-                    } else {
-                        return Err(seekwel::error::Error::MissingField(#param_field_name_str.to_string()));
-                    };
-                });
-            } else {
-                params_new_extracts.push(quote! {
-                    let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
-                        __seekwel_params
-                            .#param_field_name
-                            .into_value()
-                            .ok_or_else(|| seekwel::error::Error::MissingField(#param_field_name_str.to_string()))?
-                    } else {
-                        return Err(seekwel::error::Error::MissingField(#param_field_name_str.to_string()));
-                    };
-                });
-            }
+        }
+
+        if let Some(default_value) = field.default_value.as_ref() {
+            params_new_extracts.push(quote! {
+                let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
+                    __seekwel_params.#param_field_name.into_value().unwrap_or_else(|| {
+                        ::std::convert::Into::<#ty>::into(#default_value)
+                    })
+                } else {
+                    ::std::convert::Into::<#ty>::into(#default_value)
+                };
+            });
+        } else if field.is_optional {
+            params_new_extracts.push(quote! {
+                let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
+                    __seekwel_params.#param_field_name.into_value().unwrap_or(None)
+                } else {
+                    None
+                };
+            });
+        } else if field.is_bool {
+            params_new_extracts.push(quote! {
+                let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
+                    __seekwel_params.#param_field_name.into_value().unwrap_or(false)
+                } else {
+                    return Err(seekwel::error::Error::MissingField(#param_field_name_str.to_string()));
+                };
+            });
+        } else {
+            params_new_extracts.push(quote! {
+                let #model_field_name = if __seekwel_is_allowed(#columns_name::#column_variant) {
+                    __seekwel_params
+                        .#param_field_name
+                        .into_value()
+                        .ok_or_else(|| seekwel::error::Error::MissingField(#param_field_name_str.to_string()))?
+                } else {
+                    return Err(seekwel::error::Error::MissingField(#param_field_name_str.to_string()));
+                };
+            });
         }
 
         if field.is_bool {

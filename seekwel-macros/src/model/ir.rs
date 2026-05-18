@@ -1,4 +1,4 @@
-use syn::{Generics, Ident, Path, Type, Visibility};
+use syn::{Expr, Generics, Ident, Path, Type, Visibility};
 
 pub(crate) struct ModelSpec {
     pub(crate) name: Ident,
@@ -54,6 +54,7 @@ pub(crate) struct StoredFieldSpec {
     pub(crate) association_handler: Ident,
     pub(crate) indexed: bool,
     pub(crate) unique: bool,
+    pub(crate) default_value: Option<Expr>,
     pub(crate) is_optional: bool,
     pub(crate) is_bool: bool,
     pub(crate) optional_inner_ty: Option<Type>,

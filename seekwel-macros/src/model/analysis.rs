@@ -225,6 +225,7 @@ fn analyze_model_field(field: &Field) -> Result<ModelFieldSpec, syn::Error> {
         association_handler: association_handler_ident_from_str(&storage_column_name),
         indexed: attrs.indexed,
         unique: attrs.unique,
+        default_value: attrs.default_value,
         storage_column_name,
         is_optional: optional_inner_ty.is_some(),
         is_bool: is_bool_type(&field.ty),
@@ -250,10 +251,10 @@ fn has_many_field(
     let Some(child_ty) = has_many_type(&field.ty)? else {
         return Ok(None);
     };
-    if attrs.indexed || attrs.unique {
+    if attrs.indexed || attrs.unique || attrs.default_value.is_some() {
         return Err(syn::Error::new_spanned(
             field,
-            "#[index] and #[unique] can only be used on stored fields, including BelongsTo fields",
+            "#[index], #[unique], and #[default = value] can only be used on stored fields, including BelongsTo fields",
         ));
     }
     let association_key = attrs.key.as_ref().ok_or_else(|| {
@@ -317,6 +318,7 @@ struct FieldAttrs {
     key: Option<String>,
     indexed: bool,
     unique: bool,
+    default_value: Option<Expr>,
 }
 
 fn field_attrs(field: &Field) -> Result<FieldAttrs, syn::Error> {
@@ -350,6 +352,11 @@ fn field_attrs(field: &Field) -> Result<FieldAttrs, syn::Error> {
             continue;
         }
 
+        if attr.path().is_ident("default") {
+            set_default_attr(&mut attrs, attr, default_attr_value(attr)?)?;
+            continue;
+        }
+
         if attr.path().is_ident("seekwel") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("key") {
@@ -368,8 +375,14 @@ fn field_attrs(field: &Field) -> Result<FieldAttrs, syn::Error> {
                     return Ok(());
                 }
 
+                if meta.path.is_ident("default") {
+                    let expr: Expr = meta.value()?.parse()?;
+                    set_default_attr(&mut attrs, meta.path, expr)?;
+                    return Ok(());
+                }
+
                 Err(meta.error(
-                    "unsupported seekwel field option; expected `key`, `index`, or `unique`",
+                    "unsupported seekwel field option; expected `key`, `index`, `unique`, or `default`",
                 ))
             })?;
         }
@@ -387,6 +400,17 @@ fn key_attr_value(attr: &Attribute) -> Result<String, syn::Error> {
     };
 
     key_name_from_expr(&meta.value)
+}
+
+fn default_attr_value(attr: &Attribute) -> Result<Expr, syn::Error> {
+    let syn::Meta::NameValue(meta) = &attr.meta else {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "defaults must be written as #[default = value]",
+        ));
+    };
+
+    Ok(meta.value.clone())
 }
 
 fn set_key_attr(
@@ -417,6 +441,21 @@ fn set_unique_attr(attrs: &mut FieldAttrs, span: impl quote::ToTokens) -> Result
         ));
     }
     attrs.unique = true;
+    Ok(())
+}
+
+fn set_default_attr(
+    attrs: &mut FieldAttrs,
+    span: impl quote::ToTokens,
+    value: Expr,
+) -> Result<(), syn::Error> {
+    if attrs.default_value.is_some() {
+        return Err(syn::Error::new_spanned(
+            span,
+            "duplicate `default` attribute",
+        ));
+    }
+    attrs.default_value = Some(value);
     Ok(())
 }
 

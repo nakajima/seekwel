@@ -40,6 +40,17 @@ struct Todo {
     done: bool,
 }
 
+#[seekwel::model(table_name = "default_todos")]
+struct DefaultTodo {
+    id: u64,
+    #[default = "Untitled"]
+    title: String,
+    #[default = true]
+    done: bool,
+    #[default = Some(3)]
+    priority: Option<u8>,
+}
+
 #[cfg(feature = "serde")]
 #[derive(Debug, Clone, PartialEq, Eq, seekwel::__private::serde::Deserialize)]
 struct TagList(Vec<String>);
@@ -146,6 +157,7 @@ fn params_create_and_update_only_allowed_columns() -> Result<(), Error> {
     Pet::create_table()?;
     ManualPerson::create_table()?;
     Todo::create_table()?;
+    DefaultTodo::create_table()?;
 
     let draft = Person::new(
         PersonParams::new()
@@ -196,6 +208,23 @@ fn params_create_and_update_only_allowed_columns() -> Result<(), Error> {
         Todo::new(TodoParams::new().title("No done").allow([TodoColumns::Title])),
         Err(Error::MissingField(field)) if field == "done"
     ));
+
+    let default_todo =
+        DefaultTodo::new(DefaultTodoParams::new().allow(std::iter::empty::<DefaultTodoColumns>()))?;
+    assert_eq!(default_todo.title, "Untitled");
+    assert!(default_todo.done);
+    assert_eq!(default_todo.priority, Some(3));
+
+    let explicit_default_todo = DefaultTodo::new(
+        DefaultTodoParams::new()
+            .title("Explicit")
+            .done(false)
+            .priority(None)
+            .allow_all(),
+    )?;
+    assert_eq!(explicit_default_todo.title, "Explicit");
+    assert!(!explicit_default_todo.done);
+    assert_eq!(explicit_default_todo.priority, None);
 
     let pet = Pet::create(
         PetParams::new()
