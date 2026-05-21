@@ -881,11 +881,11 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 INSERT_COLUMNS
             }
 
-            fn params(&self) -> Vec<rusqlite::types::Value> {
+            fn params(&self) -> Vec<seekwel::rusqlite::types::Value> {
                 vec![#(#param_exprs,)*]
             }
 
-            fn insert_params(&self) -> Vec<rusqlite::types::Value> {
+            fn insert_params(&self) -> Vec<seekwel::rusqlite::types::Value> {
                 vec![#insert_param_exprs]
             }
         }
@@ -895,7 +895,7 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 None
             }
 
-            fn persisted_primary_key_value(&self) -> Option<rusqlite::types::Value> {
+            fn persisted_primary_key_value(&self) -> Option<seekwel::rusqlite::types::Value> {
                 None
             }
 
@@ -916,7 +916,7 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 )
             }
 
-            fn persisted_primary_key_value(&self) -> Option<rusqlite::types::Value> {
+            fn persisted_primary_key_value(&self) -> Option<seekwel::rusqlite::types::Value> {
                 Some(<#primary_key_ty as seekwel::model::SqlField>::to_sql_value(
                     &self.#primary_key_ident,
                 ))
@@ -934,7 +934,7 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 None
             }
 
-            fn persisted_primary_key_value(&self) -> Option<rusqlite::types::Value> {
+            fn persisted_primary_key_value(&self) -> Option<seekwel::rusqlite::types::Value> {
                 None
             }
 
@@ -953,7 +953,7 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                 )
             }
 
-            fn persisted_primary_key_value(&self) -> Option<rusqlite::types::Value> {
+            fn persisted_primary_key_value(&self) -> Option<seekwel::rusqlite::types::Value> {
                 Some(<#primary_key_ty as seekwel::model::SqlField>::to_sql_value(
                     &self.#primary_key_ident,
                 ))
@@ -970,15 +970,15 @@ pub(crate) fn expand_model(spec: &ModelSpec) -> proc_macro2::TokenStream {
                     .expect("seekwel persisted model primary key should convert to a non-negative u64 association id")
             }
 
-            fn primary_key_value(&self) -> rusqlite::types::Value {
+            fn primary_key_value(&self) -> seekwel::rusqlite::types::Value {
                 <#primary_key_ty as seekwel::model::SqlField>::to_sql_value(&self.#primary_key_ident)
             }
 
-            fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+            fn from_row(row: &seekwel::rusqlite::Row) -> seekwel::rusqlite::Result<Self> {
                 let #primary_key_ident = <#primary_key_ty as seekwel::model::SqlField>::from_sql_row(row, 0)?;
                 let __seekwel_association_id =
                     <#primary_key_ty as seekwel::model::PrimaryKeyField>::to_association_id(&#primary_key_ident)
-                        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+                        .map_err(|error| seekwel::rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
                 Ok(Self {
                     #primary_key_ident,
                     #(#from_row_fields,)*

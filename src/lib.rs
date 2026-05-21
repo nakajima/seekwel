@@ -58,6 +58,8 @@ pub mod __private {
 }
 
 pub use error::Error;
+/// Re-export of the SQLite driver used by seekwel.
+pub use rusqlite;
 
 pub use model::{
     BelongsTo, Chunked, ChunkedIter, ChunkedQuery, ChunkedTryIter, Comparison, CreateOrUpdateError,

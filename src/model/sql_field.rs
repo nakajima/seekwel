@@ -5,12 +5,12 @@ use super::{ColumnDef, IndexDef};
 /// Describes how a Rust type is stored in SQLite.
 ///
 /// Built-in implementations are provided for common scalar types, `String`,
-/// `rusqlite::types::Value`, and `Option<T>`.
+/// `seekwel::rusqlite::types::Value`, and `Option<T>`.
 ///
 /// # Example
 ///
 /// ```rust
-/// use rusqlite::types::Value;
+/// use seekwel::rusqlite::types::Value;
 /// use seekwel::{Comparison, SqlField, connection::Connection, prelude::*};
 ///
 /// #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +24,10 @@ use super::{ColumnDef, IndexDef};
 ///         Value::Text(self.0.clone())
 ///     }
 ///
-///     fn from_sql_row(row: &rusqlite::Row, index: usize) -> rusqlite::Result<Self> {
+///     fn from_sql_row(
+///         row: &seekwel::rusqlite::Row,
+///         index: usize,
+///     ) -> seekwel::rusqlite::Result<Self> {
 ///         Ok(Self(row.get(index)?))
 ///     }
 /// }
